@@ -46,6 +46,14 @@ PASSWORD_MAX_LENGTH = 100
 USERNAME_PATTERN = re.compile(r'^[a-zA-Z0-9_]+$')
 PASSWORD_PATTERN = re.compile(r'^(?=.*[A-Za-z])(?=.*\d)(?=.*[@$!%*#?&])[A-Za-z\d@$!%*#?&]+$')
 
+# 상품 입력 검증을 위한 상수
+PRODUCT_TITLE_MIN_LENGTH = 2
+PRODUCT_TITLE_MAX_LENGTH = 100
+PRODUCT_DESCRIPTION_MIN_LENGTH = 10
+PRODUCT_DESCRIPTION_MAX_LENGTH = 1000
+PRODUCT_PRICE_MIN = 0
+PRODUCT_PRICE_MAX = 1000000000  # 10억
+
 def validate_username(username):
     if not username:
         return False, "사용자명은 필수입니다."
@@ -86,6 +94,33 @@ def check_password(password, hashed):
     hashed_bytes = hashed.encode('utf-8')
     # 비밀번호 검증
     return bcrypt.checkpw(password_bytes, hashed_bytes)
+
+def validate_product_title(title):
+    if not title:
+        return False, "상품 제목은 필수입니다."
+    if len(title) < PRODUCT_TITLE_MIN_LENGTH or len(title) > PRODUCT_TITLE_MAX_LENGTH:
+        return False, f"상품 제목은 {PRODUCT_TITLE_MIN_LENGTH}~{PRODUCT_TITLE_MAX_LENGTH}자 사이여야 합니다."
+    return True, ""
+
+def validate_product_description(description):
+    if not description:
+        return False, "상품 설명은 필수입니다."
+    if len(description) < PRODUCT_DESCRIPTION_MIN_LENGTH or len(description) > PRODUCT_DESCRIPTION_MAX_LENGTH:
+        return False, f"상품 설명은 {PRODUCT_DESCRIPTION_MIN_LENGTH}~{PRODUCT_DESCRIPTION_MAX_LENGTH}자 사이여야 합니다."
+    return True, ""
+
+def validate_product_price(price):
+    if not price:
+        return False, "상품 가격은 필수입니다."
+    try:
+        price_num = float(price)
+        if price_num < PRODUCT_PRICE_MIN or price_num > PRODUCT_PRICE_MAX:
+            return False, f"상품 가격은 {PRODUCT_PRICE_MIN}~{PRODUCT_PRICE_MAX}원 사이여야 합니다."
+        if not re.match(r'^\d+(\.\d{1,2})?$', price):
+            return False, "상품 가격은 소수점 둘째 자리까지만 입력 가능합니다."
+    except ValueError:
+        return False, "상품 가격은 숫자만 입력 가능합니다."
+    return True, ""
 
 # 데이터베이스 연결 관리: 요청마다 연결 생성 후 사용, 종료 시 close
 def get_db():
@@ -357,39 +392,69 @@ def profile():
 
 # 상품 등록
 @app.route('/product/new', methods=['GET', 'POST'])
+@login_required
+@handle_db_error
 def new_product():
-    if 'user_id' not in session:
-        return redirect(url_for('login'))
     if request.method == 'POST':
-        title = request.form['title']
-        description = request.form['description']
-        price = request.form['price']
-        db = get_db()
-        cursor = db.cursor()
-        product_id = str(uuid.uuid4())
-        cursor.execute(
-            "INSERT INTO product (id, title, description, price, seller_id) VALUES (?, ?, ?, ?, ?)",
-            (product_id, title, description, price, session['user_id'])
-        )
-        db.commit()
-        flash('상품이 등록되었습니다.')
-        return redirect(url_for('dashboard'))
+        try:
+            title = sanitize_input(request.form['title'])
+            description = sanitize_input(request.form['description'])
+            price = request.form['price']
+            
+            # 제목 검증
+            is_valid, error_message = validate_product_title(title)
+            if not is_valid:
+                flash(error_message)
+                return redirect(url_for('new_product'))
+                
+            # 설명 검증
+            is_valid, error_message = validate_product_description(description)
+            if not is_valid:
+                flash(error_message)
+                return redirect(url_for('new_product'))
+                
+            # 가격 검증
+            is_valid, error_message = validate_product_price(price)
+            if not is_valid:
+                flash(error_message)
+                return redirect(url_for('new_product'))
+                
+            db = get_db()
+            cursor = db.cursor()
+            product_id = str(uuid.uuid4())
+            cursor.execute(
+                "INSERT INTO product (id, title, description, price, seller_id) VALUES (?, ?, ?, ?, ?)",
+                (product_id, title, description, price, session['user_id'])
+            )
+            db.commit()
+            flash('상품이 등록되었습니다.')
+            return redirect(url_for('dashboard'))
+        except Exception as e:
+            logger.error(f"Product Registration Error: {str(e)}", exc_info=True)
+            flash('상품 등록 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.')
+            return redirect(url_for('new_product'))
     return render_template('new_product.html')
 
 # 상품 상세보기
 @app.route('/product/<product_id>')
+@handle_db_error
 def view_product(product_id):
-    db = get_db()
-    cursor = db.cursor()
-    cursor.execute("SELECT * FROM product WHERE id = ?", (product_id,))
-    product = cursor.fetchone()
-    if not product:
-        flash('상품을 찾을 수 없습니다.')
+    try:
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute("SELECT * FROM product WHERE id = ?", (product_id,))
+        product = cursor.fetchone()
+        if not product:
+            flash('상품을 찾을 수 없습니다.')
+            return redirect(url_for('dashboard'))
+        # 판매자 정보 조회
+        cursor.execute("SELECT * FROM user WHERE id = ?", (product['seller_id'],))
+        seller = cursor.fetchone()
+        return render_template('view_product.html', product=product, seller=seller)
+    except Exception as e:
+        logger.error(f"Product View Error: {str(e)}", exc_info=True)
+        flash('상품 정보를 불러오는 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.')
         return redirect(url_for('dashboard'))
-    # 판매자 정보 조회
-    cursor.execute("SELECT * FROM user WHERE id = ?", (product['seller_id'],))
-    seller = cursor.fetchone()
-    return render_template('view_product.html', product=product, seller=seller)
 
 # 신고하기
 @app.route('/report', methods=['GET', 'POST'])
@@ -438,4 +503,8 @@ def handle_send_message_event(data):
 
 if __name__ == '__main__':
     init_db()  # 앱 컨텍스트 내에서 테이블 생성
-    socketio.run(app, debug=True)
+    print("\n=== 서버가 시작되었습니다 ===")
+    print("로컬 주소: http://127.0.0.1:5000")
+    print("외부 접속 주소: http://localhost:5000")
+    print("===========================\n")
+    socketio.run(app, debug=True, host='0.0.0.0', port=5000)

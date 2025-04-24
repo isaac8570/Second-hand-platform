@@ -1,0 +1,18 @@
+2025-04-24 19:55:25,239 - werkzeug - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5000
+2025-04-24 19:55:25,239 - werkzeug - INFO - [33mPress CTRL+C to quit[0m
+2025-04-24 19:55:25,239 - werkzeug - INFO -  * Restarting with stat
+2025-04-24 19:55:26,564 - werkzeug - WARNING -  * Debugger is active!
+2025-04-24 19:55:26,570 - werkzeug - INFO -  * Debugger PIN: 128-294-015
+2025-04-24 19:56:08,721 - werkzeug - INFO -  * Detected change in 'C:\\Users\\admin\\Desktop\\whitehat\\secure-coding\\app.py', reloading
+2025-04-24 19:56:08,834 - werkzeug - INFO -  * Restarting with stat
+2025-04-24 19:56:10,159 - werkzeug - WARNING -  * Debugger is active!
+2025-04-24 19:56:10,167 - werkzeug - INFO -  * Debugger PIN: 128-294-015
+2025-04-24 19:56:19,341 - werkzeug - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5000
+2025-04-24 19:56:19,341 - werkzeug - INFO - [33mPress CTRL+C to quit[0m
+2025-04-24 19:56:19,341 - werkzeug - INFO -  * Restarting with stat
+2025-04-24 19:56:20,579 - werkzeug - WARNING -  * Debugger is active!
+2025-04-24 19:56:20,584 - werkzeug - INFO -  * Debugger PIN: 128-294-015
+2025-04-24 19:57:28,668 - werkzeug - INFO - 127.0.0.1 - - [24/Apr/2025 19:57:28] "GET / HTTP/1.1" 200 -
+2025-04-24 19:57:31,101 - werkzeug - INFO - 127.0.0.1 - - [24/Apr/2025 19:57:31] "GET /login HTTP/1.1" 200 -
