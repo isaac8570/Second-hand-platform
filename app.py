@@ -3,9 +3,11 @@ import uuid
 import re
 import bleach
 import bcrypt
+from datetime import datetime, timedelta
 from flask import Flask, render_template, request, redirect, url_for, session, flash, g
 from flask_socketio import SocketIO, send
 from flask_wtf.csrf import CSRFProtect
+from functools import wraps
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret!'
@@ -15,6 +17,9 @@ app.config['SESSION_COOKIE_SECURE'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['PERMANENT_SESSION_LIFETIME'] = 3600  # 1시간
 app.config['SESSION_COOKIE_NAME'] = 'secure_session'
+# 세션 만료 시간 설정
+app.config['SESSION_EXPIRY'] = 3600  # 1시간
+app.config['REAUTH_EXPIRY'] = 300    # 5분
 
 DATABASE = 'market.db'
 socketio = SocketIO(app)
@@ -118,6 +123,34 @@ def init_db():
         """)
         db.commit()
 
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session:
+            return redirect(url_for('login'))
+        # 세션 만료 체크
+        if 'last_activity' in session:
+            last_activity = datetime.fromisoformat(session['last_activity'])
+            if datetime.now() - last_activity > timedelta(seconds=app.config['SESSION_EXPIRY']):
+                session.clear()
+                flash('세션이 만료되었습니다. 다시 로그인해주세요.')
+                return redirect(url_for('login'))
+        session['last_activity'] = datetime.now().isoformat()
+        return f(*args, **kwargs)
+    return decorated_function
+
+def reauth_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session:
+            return redirect(url_for('login'))
+        # 재인증 필요 체크
+        if 'reauth_time' not in session or \
+           datetime.now() - datetime.fromisoformat(session['reauth_time']) > timedelta(seconds=app.config['REAUTH_EXPIRY']):
+            return redirect(url_for('reauth'))
+        return f(*args, **kwargs)
+    return decorated_function
+
 # 기본 라우트
 @app.route('/')
 def index():
@@ -187,6 +220,7 @@ def login():
         user = cursor.fetchone()
         if user and check_password(password, user['password']):
             session['user_id'] = user['id']
+            session['last_activity'] = datetime.now().isoformat()
             flash('로그인 성공!')
             return redirect(url_for('dashboard'))
         else:
@@ -218,9 +252,9 @@ def dashboard():
 
 # 프로필 페이지: bio 업데이트 가능
 @app.route('/profile', methods=['GET', 'POST'])
+@login_required
+@reauth_required
 def profile():
-    if 'user_id' not in session:
-        return redirect(url_for('login'))
     db = get_db()
     cursor = db.cursor()
     if request.method == 'POST':
@@ -292,6 +326,29 @@ def report():
         flash('신고가 접수되었습니다.')
         return redirect(url_for('dashboard'))
     return render_template('report.html')
+
+# 재인증
+@app.route('/reauth', methods=['GET', 'POST'])
+@login_required
+def reauth():
+    if request.method == 'POST':
+        if not csrf.validate():
+            flash('CSRF 토큰이 유효하지 않습니다.')
+            return redirect(url_for('reauth'))
+            
+        password = request.form['password']
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute("SELECT * FROM user WHERE id = ?", (session['user_id'],))
+        user = cursor.fetchone()
+        if user and check_password(password, user['password']):
+            session['reauth_time'] = datetime.now().isoformat()
+            flash('재인증이 완료되었습니다.')
+            return redirect(url_for('dashboard'))
+        else:
+            flash('비밀번호가 올바르지 않습니다.')
+            return redirect(url_for('reauth'))
+    return render_template('reauth.html')
 
 # 실시간 채팅: 클라이언트가 메시지를 보내면 전체 브로드캐스트
 @socketio.on('send_message')

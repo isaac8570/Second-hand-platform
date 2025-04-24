@@ -1,0 +1,10 @@
+{% extends "base.html" %} {% block title %}재인증{% endblock %} {% block content
+%}
+<h1>재인증</h1>
+<p>민감한 작업을 수행하기 위해 비밀번호를 다시 입력해주세요.</p>
+<form method="POST">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+  <input type="password" name="password" placeholder="비밀번호" required />
+  <button type="submit">확인</button>
+</form>
+{% endblock %}
