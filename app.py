@@ -20,6 +20,9 @@ app.config['SESSION_COOKIE_NAME'] = 'secure_session'
 # 세션 만료 시간 설정
 app.config['SESSION_EXPIRY'] = 3600  # 1시간
 app.config['REAUTH_EXPIRY'] = 300    # 5분
+# 로그인 실패 설정
+app.config['MAX_LOGIN_ATTEMPTS'] = 5
+app.config['LOGIN_TIMEOUT'] = 300    # 5분
 
 DATABASE = 'market.db'
 socketio = SocketIO(app)
@@ -121,7 +124,39 @@ def init_db():
                 reason TEXT NOT NULL
             )
         """)
+        # 로그인 시도 테이블 생성
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS login_attempt (
+                id TEXT PRIMARY KEY,
+                username TEXT NOT NULL,
+                attempt_time TIMESTAMP NOT NULL,
+                ip_address TEXT NOT NULL,
+                success BOOLEAN NOT NULL
+            )
+        """)
         db.commit()
+
+def check_login_attempts(username, ip_address):
+    db = get_db()
+    cursor = db.cursor()
+    # 최근 5분 동안의 실패한 로그인 시도 횟수 확인
+    cursor.execute("""
+        SELECT COUNT(*) FROM login_attempt 
+        WHERE username = ? AND ip_address = ? AND success = 0 
+        AND attempt_time > datetime('now', '-5 minutes')
+    """, (username, ip_address))
+    failed_attempts = cursor.fetchone()[0]
+    return failed_attempts >= app.config['MAX_LOGIN_ATTEMPTS']
+
+def record_login_attempt(username, ip_address, success):
+    db = get_db()
+    cursor = db.cursor()
+    attempt_id = str(uuid.uuid4())
+    cursor.execute("""
+        INSERT INTO login_attempt (id, username, attempt_time, ip_address, success)
+        VALUES (?, ?, datetime('now'), ?, ?)
+    """, (attempt_id, username, ip_address, success))
+    db.commit()
 
 def login_required(f):
     @wraps(f)
@@ -162,10 +197,6 @@ def index():
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
-        if not csrf.validate():
-            flash('CSRF 토큰이 유효하지 않습니다.')
-            return redirect(url_for('register'))
-            
         username = sanitize_input(request.form['username'])
         password = request.form['password']
         
@@ -201,12 +232,9 @@ def register():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        if not csrf.validate():
-            flash('CSRF 토큰이 유효하지 않습니다.')
-            return redirect(url_for('login'))
-            
         username = sanitize_input(request.form['username'])
         password = request.form['password']
+        ip_address = request.remote_addr
         
         # 사용자명 검증
         is_valid, error_message = validate_username(username)
@@ -214,16 +242,24 @@ def login():
             flash(error_message)
             return redirect(url_for('login'))
             
+        # 로그인 시도 횟수 확인
+        if check_login_attempts(username, ip_address):
+            flash('너무 많은 로그인 시도가 있었습니다. 5분 후에 다시 시도해주세요.')
+            return redirect(url_for('login'))
+            
         db = get_db()
         cursor = db.cursor()
         cursor.execute("SELECT * FROM user WHERE username = ?", (username,))
         user = cursor.fetchone()
+        
         if user and check_password(password, user['password']):
             session['user_id'] = user['id']
             session['last_activity'] = datetime.now().isoformat()
+            record_login_attempt(username, ip_address, True)
             flash('로그인 성공!')
             return redirect(url_for('dashboard'))
         else:
+            record_login_attempt(username, ip_address, False)
             flash('아이디 또는 비밀번호가 올바르지 않습니다.')
             return redirect(url_for('login'))
     return render_template('login.html')
@@ -258,10 +294,6 @@ def profile():
     db = get_db()
     cursor = db.cursor()
     if request.method == 'POST':
-        if not csrf.validate():
-            flash('CSRF 토큰이 유효하지 않습니다.')
-            return redirect(url_for('profile'))
-            
         bio = sanitize_input(request.form.get('bio', ''))
         cursor.execute("UPDATE user SET bio = ? WHERE id = ?", (bio, session['user_id']))
         db.commit()
@@ -332,10 +364,6 @@ def report():
 @login_required
 def reauth():
     if request.method == 'POST':
-        if not csrf.validate():
-            flash('CSRF 토큰이 유효하지 않습니다.')
-            return redirect(url_for('reauth'))
-            
         password = request.form['password']
         db = get_db()
         cursor = db.cursor()
