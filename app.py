@@ -4,11 +4,13 @@ import re
 import bleach
 from flask import Flask, render_template, request, redirect, url_for, session, flash, g
 from flask_socketio import SocketIO, send
+from flask_wtf.csrf import CSRFProtect
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret!'
 DATABASE = 'market.db'
 socketio = SocketIO(app)
+csrf = CSRFProtect(app)
 
 # 입력 검증을 위한 상수
 USERNAME_MIN_LENGTH = 3
@@ -102,6 +104,10 @@ def index():
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
+        if not csrf.validate():
+            flash('CSRF 토큰이 유효하지 않습니다.')
+            return redirect(url_for('register'))
+            
         username = sanitize_input(request.form['username'])
         password = request.form['password']
         
@@ -135,6 +141,10 @@ def register():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
+        if not csrf.validate():
+            flash('CSRF 토큰이 유효하지 않습니다.')
+            return redirect(url_for('login'))
+            
         username = sanitize_input(request.form['username'])
         password = request.form['password']
         
@@ -187,7 +197,11 @@ def profile():
     db = get_db()
     cursor = db.cursor()
     if request.method == 'POST':
-        bio = request.form.get('bio', '')
+        if not csrf.validate():
+            flash('CSRF 토큰이 유효하지 않습니다.')
+            return redirect(url_for('profile'))
+            
+        bio = sanitize_input(request.form.get('bio', ''))
         cursor.execute("UPDATE user SET bio = ? WHERE id = ?", (bio, session['user_id']))
         db.commit()
         flash('프로필이 업데이트되었습니다.')

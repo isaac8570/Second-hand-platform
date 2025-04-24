@@ -10,3 +10,4 @@ dependencies:
       - flask-sqlalchemy
       - bleach
       - re2
+      - flask-wtf
