@@ -11,3 +11,4 @@ dependencies:
       - bleach
       - re2
       - flask-wtf
+      - bcrypt

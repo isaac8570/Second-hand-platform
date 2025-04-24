@@ -2,6 +2,7 @@ import sqlite3
 import uuid
 import re
 import bleach
+import bcrypt
 from flask import Flask, render_template, request, redirect, url_for, session, flash, g
 from flask_socketio import SocketIO, send
 from flask_wtf.csrf import CSRFProtect
@@ -43,6 +44,23 @@ def sanitize_input(text):
         return ""
     # HTML 태그 제거 및 특수문자 이스케이프
     return bleach.clean(text, strip=True)
+
+def hash_password(password):
+    # 비밀번호를 바이트로 변환
+    password_bytes = password.encode('utf-8')
+    # salt 생성 (bcrypt가 자동으로 생성)
+    salt = bcrypt.gensalt()
+    # 비밀번호 해싱
+    hashed = bcrypt.hashpw(password_bytes, salt)
+    return hashed.decode('utf-8')
+
+def check_password(password, hashed):
+    # 비밀번호를 바이트로 변환
+    password_bytes = password.encode('utf-8')
+    # 해시된 비밀번호를 바이트로 변환
+    hashed_bytes = hashed.encode('utf-8')
+    # 비밀번호 검증
+    return bcrypt.checkpw(password_bytes, hashed_bytes)
 
 # 데이터베이스 연결 관리: 요청마다 연결 생성 후 사용, 종료 시 close
 def get_db():
@@ -130,8 +148,10 @@ def register():
             flash('이미 존재하는 사용자명입니다.')
             return redirect(url_for('register'))
         user_id = str(uuid.uuid4())
+        # 비밀번호 해싱
+        hashed_password = hash_password(password)
         cursor.execute("INSERT INTO user (id, username, password) VALUES (?, ?, ?)",
-                       (user_id, username, password))
+                       (user_id, username, hashed_password))
         db.commit()
         flash('회원가입이 완료되었습니다. 로그인 해주세요.')
         return redirect(url_for('login'))
@@ -156,9 +176,9 @@ def login():
             
         db = get_db()
         cursor = db.cursor()
-        cursor.execute("SELECT * FROM user WHERE username = ? AND password = ?", (username, password))
+        cursor.execute("SELECT * FROM user WHERE username = ?", (username,))
         user = cursor.fetchone()
-        if user:
+        if user and check_password(password, user['password']):
             session['user_id'] = user['id']
             flash('로그인 성공!')
             return redirect(url_for('dashboard'))
