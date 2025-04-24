@@ -16,3 +16,40 @@
 2025-04-24 19:56:20,584 - werkzeug - INFO -  * Debugger PIN: 128-294-015
 2025-04-24 19:57:28,668 - werkzeug - INFO - 127.0.0.1 - - [24/Apr/2025 19:57:28] "GET / HTTP/1.1" 200 -
 2025-04-24 19:57:31,101 - werkzeug - INFO - 127.0.0.1 - - [24/Apr/2025 19:57:31] "GET /login HTTP/1.1" 200 -
+2025-04-24 20:00:56,457 - werkzeug - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://172.25.83.27:5000
+2025-04-24 20:00:56,457 - werkzeug - INFO - [33mPress CTRL+C to quit[0m
+2025-04-24 20:00:56,458 - werkzeug - INFO -  * Restarting with stat
+2025-04-24 20:00:57,713 - werkzeug - WARNING -  * Debugger is active!
+2025-04-24 20:00:57,720 - werkzeug - INFO -  * Debugger PIN: 128-294-015
+2025-04-24 20:01:01,111 - werkzeug - INFO - 127.0.0.1 - - [24/Apr/2025 20:01:01] "GET / HTTP/1.1" 200 -
+2025-04-24 20:01:01,369 - werkzeug - INFO - 127.0.0.1 - - [24/Apr/2025 20:01:01] "[33mGET /favicon.ico HTTP/1.1[0m" 404 -
+2025-04-24 20:01:05,082 - werkzeug - INFO - 127.0.0.1 - - [24/Apr/2025 20:01:05] "GET /login HTTP/1.1" 200 -
+2025-04-24 20:01:12,453 - werkzeug - INFO - 127.0.0.1 - - [24/Apr/2025 20:01:12] "[32mPOST /login HTTP/1.1[0m" 302 -
+2025-04-24 20:01:12,530 - werkzeug - INFO - 127.0.0.1 - - [24/Apr/2025 20:01:12] "GET /dashboard HTTP/1.1" 200 -
+2025-04-24 20:01:12,868 - werkzeug - INFO - 127.0.0.1 - - [24/Apr/2025 20:01:12] "GET /socket.io/?EIO=4&transport=polling&t=PPdTNBf HTTP/1.1" 200 -
+2025-04-24 20:01:13,141 - werkzeug - INFO - 127.0.0.1 - - [24/Apr/2025 20:01:13] "POST /socket.io/?EIO=4&transport=polling&t=PPdTNGe&sid=S8OxUwtC18OUyzQzAAAA HTTP/1.1" 200 -
+2025-04-24 20:01:13,188 - werkzeug - INFO - 127.0.0.1 - - [24/Apr/2025 20:01:13] "GET /socket.io/?EIO=4&transport=polling&t=PPdTNGf&sid=S8OxUwtC18OUyzQzAAAA HTTP/1.1" 200 -
+2025-04-24 20:01:13,193 - werkzeug - INFO - 127.0.0.1 - - [24/Apr/2025 20:01:13] "GET /socket.io/?EIO=4&transport=polling&t=PPdTNLe&sid=S8OxUwtC18OUyzQzAAAA HTTP/1.1" 200 -
+2025-04-24 20:01:16,240 - werkzeug - INFO - 127.0.0.1 - - [24/Apr/2025 20:01:16] "GET /socket.io/?EIO=4&transport=websocket&sid=S8OxUwtC18OUyzQzAAAA HTTP/1.1" 200 -
+2025-04-24 20:01:16,434 - werkzeug - INFO - 127.0.0.1 - - [24/Apr/2025 20:01:16] "GET /product/new HTTP/1.1" 200 -
+2025-04-24 20:01:19,887 - flask_wtf.csrf - INFO - The CSRF token is missing.
+2025-04-24 20:01:19,888 - werkzeug - INFO - 127.0.0.1 - - [24/Apr/2025 20:01:19] "[31m[1mPOST /product/new HTTP/1.1[0m" 400 -
+2025-04-24 20:01:23,071 - werkzeug - INFO - 127.0.0.1 - - [24/Apr/2025 20:01:23] "GET /product/new HTTP/1.1" 200 -
+2025-04-24 20:01:24,222 - flask_wtf.csrf - INFO - The CSRF token is missing.
+2025-04-24 20:01:24,223 - werkzeug - INFO - 127.0.0.1 - - [24/Apr/2025 20:01:24] "[31m[1mPOST /product/new HTTP/1.1[0m" 400 -
+2025-04-24 20:02:31,922 - werkzeug - INFO - 127.0.0.1 - - [24/Apr/2025 20:02:31] "GET /product/new HTTP/1.1" 200 -
+2025-04-24 20:02:35,888 - werkzeug - INFO - 127.0.0.1 - - [24/Apr/2025 20:02:35] "[32mPOST /product/new HTTP/1.1[0m" 302 -
+2025-04-24 20:02:35,893 - werkzeug - INFO - 127.0.0.1 - - [24/Apr/2025 20:02:35] "GET /product/new HTTP/1.1" 200 -
+2025-04-24 20:02:48,509 - werkzeug - INFO - 127.0.0.1 - - [24/Apr/2025 20:02:48] "[32mPOST /product/new HTTP/1.1[0m" 302 -
+2025-04-24 20:02:48,514 - werkzeug - INFO - 127.0.0.1 - - [24/Apr/2025 20:02:48] "GET /product/new HTTP/1.1" 200 -
+2025-04-24 20:03:22,677 - werkzeug - INFO - 127.0.0.1 - - [24/Apr/2025 20:03:22] "[32mPOST /product/new HTTP/1.1[0m" 302 -
+2025-04-24 20:03:22,986 - werkzeug - INFO - 127.0.0.1 - - [24/Apr/2025 20:03:22] "GET /dashboard HTTP/1.1" 200 -
+2025-04-24 20:03:23,330 - werkzeug - INFO - 127.0.0.1 - - [24/Apr/2025 20:03:23] "GET /socket.io/?EIO=4&transport=polling&t=PPdTt27 HTTP/1.1" 200 -
+2025-04-24 20:03:23,593 - werkzeug - INFO - 127.0.0.1 - - [24/Apr/2025 20:03:23] "POST /socket.io/?EIO=4&transport=polling&t=PPdTt74&sid=NNQEIjqaB0aOU8BOAAAC HTTP/1.1" 200 -
+2025-04-24 20:03:23,640 - werkzeug - INFO - 127.0.0.1 - - [24/Apr/2025 20:03:23] "GET /socket.io/?EIO=4&transport=polling&t=PPdTt75&sid=NNQEIjqaB0aOU8BOAAAC HTTP/1.1" 200 -
+2025-04-24 20:03:23,643 - werkzeug - INFO - 127.0.0.1 - - [24/Apr/2025 20:03:23] "GET /socket.io/?EIO=4&transport=polling&t=PPdTtBx&sid=NNQEIjqaB0aOU8BOAAAC HTTP/1.1" 200 -
+2025-04-24 20:03:26,423 - werkzeug - INFO - 127.0.0.1 - - [24/Apr/2025 20:03:26] "GET /socket.io/?EIO=4&transport=websocket&sid=NNQEIjqaB0aOU8BOAAAC HTTP/1.1" 200 -
+2025-04-24 20:03:26,657 - werkzeug - INFO - 127.0.0.1 - - [24/Apr/2025 20:03:26] "GET /product/4b3d611d-d4fe-4876-a666-b68edada8b07 HTTP/1.1" 200 -
