@@ -3,11 +3,13 @@ import uuid
 import re
 import bleach
 import bcrypt
+import logging
 from datetime import datetime, timedelta
-from flask import Flask, render_template, request, redirect, url_for, session, flash, g
+from flask import Flask, render_template, request, redirect, url_for, session, flash, g, jsonify
 from flask_socketio import SocketIO, send
 from flask_wtf.csrf import CSRFProtect
 from functools import wraps
+from werkzeug.exceptions import HTTPException
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret!'
@@ -23,6 +25,14 @@ app.config['REAUTH_EXPIRY'] = 300    # 5분
 # 로그인 실패 설정
 app.config['MAX_LOGIN_ATTEMPTS'] = 5
 app.config['LOGIN_TIMEOUT'] = 300    # 5분
+
+# 로깅 설정
+logging.basicConfig(
+    filename='app.log',
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 DATABASE = 'market.db'
 socketio = SocketIO(app)
@@ -186,6 +196,36 @@ def reauth_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
+# 오류 처리 핸들러
+@app.errorhandler(Exception)
+def handle_error(error):
+    # HTTP 예외 처리
+    if isinstance(error, HTTPException):
+        response = {
+            "error": error.name,
+            "message": error.description
+        }
+        return jsonify(response), error.code
+    
+    # 내부 서버 오류 처리
+    logger.error(f"Internal Server Error: {str(error)}", exc_info=True)
+    return jsonify({
+        "error": "Internal Server Error",
+        "message": "서버에서 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
+    }), 500
+
+# 데이터베이스 오류 처리
+def handle_db_error(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except sqlite3.Error as e:
+            logger.error(f"Database Error: {str(e)}", exc_info=True)
+            flash('데이터베이스 오류가 발생했습니다. 잠시 후 다시 시도해주세요.')
+            return redirect(url_for('index'))
+    return wrapper
+
 # 기본 라우트
 @app.route('/')
 def index():
@@ -195,37 +235,43 @@ def index():
 
 # 회원가입
 @app.route('/register', methods=['GET', 'POST'])
+@handle_db_error
 def register():
     if request.method == 'POST':
-        username = sanitize_input(request.form['username'])
-        password = request.form['password']
-        
-        # 사용자명 검증
-        is_valid, error_message = validate_username(username)
-        if not is_valid:
-            flash(error_message)
-            return redirect(url_for('register'))
+        try:
+            username = sanitize_input(request.form['username'])
+            password = request.form['password']
             
-        # 비밀번호 검증
-        is_valid, error_message = validate_password(password)
-        if not is_valid:
-            flash(error_message)
+            # 사용자명 검증
+            is_valid, error_message = validate_username(username)
+            if not is_valid:
+                flash(error_message)
+                return redirect(url_for('register'))
+                
+            # 비밀번호 검증
+            is_valid, error_message = validate_password(password)
+            if not is_valid:
+                flash(error_message)
+                return redirect(url_for('register'))
+                
+            db = get_db()
+            cursor = db.cursor()
+            cursor.execute("SELECT * FROM user WHERE username = ?", (username,))
+            if cursor.fetchone() is not None:
+                flash('이미 존재하는 사용자명입니다.')
+                return redirect(url_for('register'))
+            user_id = str(uuid.uuid4())
+            # 비밀번호 해싱
+            hashed_password = hash_password(password)
+            cursor.execute("INSERT INTO user (id, username, password) VALUES (?, ?, ?)",
+                           (user_id, username, hashed_password))
+            db.commit()
+            flash('회원가입이 완료되었습니다. 로그인 해주세요.')
+            return redirect(url_for('login'))
+        except Exception as e:
+            logger.error(f"Registration Error: {str(e)}", exc_info=True)
+            flash('회원가입 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.')
             return redirect(url_for('register'))
-            
-        db = get_db()
-        cursor = db.cursor()
-        cursor.execute("SELECT * FROM user WHERE username = ?", (username,))
-        if cursor.fetchone() is not None:
-            flash('이미 존재하는 사용자명입니다.')
-            return redirect(url_for('register'))
-        user_id = str(uuid.uuid4())
-        # 비밀번호 해싱
-        hashed_password = hash_password(password)
-        cursor.execute("INSERT INTO user (id, username, password) VALUES (?, ?, ?)",
-                       (user_id, username, hashed_password))
-        db.commit()
-        flash('회원가입이 완료되었습니다. 로그인 해주세요.')
-        return redirect(url_for('login'))
     return render_template('register.html')
 
 # 로그인
@@ -290,18 +336,24 @@ def dashboard():
 @app.route('/profile', methods=['GET', 'POST'])
 @login_required
 @reauth_required
+@handle_db_error
 def profile():
-    db = get_db()
-    cursor = db.cursor()
-    if request.method == 'POST':
-        bio = sanitize_input(request.form.get('bio', ''))
-        cursor.execute("UPDATE user SET bio = ? WHERE id = ?", (bio, session['user_id']))
-        db.commit()
-        flash('프로필이 업데이트되었습니다.')
+    try:
+        db = get_db()
+        cursor = db.cursor()
+        if request.method == 'POST':
+            bio = sanitize_input(request.form.get('bio', ''))
+            cursor.execute("UPDATE user SET bio = ? WHERE id = ?", (bio, session['user_id']))
+            db.commit()
+            flash('프로필이 업데이트되었습니다.')
+            return redirect(url_for('profile'))
+        cursor.execute("SELECT * FROM user WHERE id = ?", (session['user_id'],))
+        current_user = cursor.fetchone()
+        return render_template('profile.html', user=current_user)
+    except Exception as e:
+        logger.error(f"Profile Update Error: {str(e)}", exc_info=True)
+        flash('프로필 업데이트 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.')
         return redirect(url_for('profile'))
-    cursor.execute("SELECT * FROM user WHERE id = ?", (session['user_id'],))
-    current_user = cursor.fetchone()
-    return render_template('profile.html', user=current_user)
 
 # 상품 등록
 @app.route('/product/new', methods=['GET', 'POST'])
