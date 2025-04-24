@@ -9,6 +9,13 @@ from flask_wtf.csrf import CSRFProtect
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret!'
+# 세션 쿠키 보안 설정
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SECURE'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['PERMANENT_SESSION_LIFETIME'] = 3600  # 1시간
+app.config['SESSION_COOKIE_NAME'] = 'secure_session'
+
 DATABASE = 'market.db'
 socketio = SocketIO(app)
 csrf = CSRFProtect(app)
