@@ -354,18 +354,37 @@ def logout():
 
 # 대시보드: 사용자 정보와 전체 상품 리스트 표시
 @app.route('/dashboard')
+@login_required
+@handle_db_error
 def dashboard():
-    if 'user_id' not in session:
-        return redirect(url_for('login'))
-    db = get_db()
-    cursor = db.cursor()
-    # 현재 사용자 조회
-    cursor.execute("SELECT * FROM user WHERE id = ?", (session['user_id'],))
-    current_user = cursor.fetchone()
-    # 모든 상품 조회
-    cursor.execute("SELECT * FROM product")
-    all_products = cursor.fetchall()
-    return render_template('dashboard.html', products=all_products, user=current_user)
+    try:
+        search_query = request.args.get('q', '').strip()
+        db = get_db()
+        cursor = db.cursor()
+        
+        # 현재 사용자 조회
+        cursor.execute("SELECT * FROM user WHERE id = ?", (session['user_id'],))
+        current_user = cursor.fetchone()
+        
+        # 상품 검색
+        if search_query:
+            cursor.execute("""
+                SELECT * FROM product 
+                WHERE title LIKE ? OR description LIKE ?
+                ORDER BY id DESC
+            """, (f'%{search_query}%', f'%{search_query}%'))
+        else:
+            cursor.execute("SELECT * FROM product ORDER BY id DESC")
+            
+        all_products = cursor.fetchall()
+        return render_template('dashboard.html', 
+                             products=all_products, 
+                             user=current_user,
+                             search_query=search_query)
+    except Exception as e:
+        logger.error(f"Dashboard Error: {str(e)}", exc_info=True)
+        flash('상품 목록을 불러오는 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.')
+        return redirect(url_for('index'))
 
 # 프로필 페이지: bio 업데이트 가능
 @app.route('/profile', methods=['GET', 'POST'])
