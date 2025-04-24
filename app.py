@@ -1,5 +1,7 @@
 import sqlite3
 import uuid
+import re
+import bleach
 from flask import Flask, render_template, request, redirect, url_for, session, flash, g
 from flask_socketio import SocketIO, send
 
@@ -7,6 +9,38 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret!'
 DATABASE = 'market.db'
 socketio = SocketIO(app)
+
+# 입력 검증을 위한 상수
+USERNAME_MIN_LENGTH = 3
+USERNAME_MAX_LENGTH = 20
+PASSWORD_MIN_LENGTH = 8
+PASSWORD_MAX_LENGTH = 100
+USERNAME_PATTERN = re.compile(r'^[a-zA-Z0-9_]+$')
+PASSWORD_PATTERN = re.compile(r'^(?=.*[A-Za-z])(?=.*\d)(?=.*[@$!%*#?&])[A-Za-z\d@$!%*#?&]+$')
+
+def validate_username(username):
+    if not username:
+        return False, "사용자명은 필수입니다."
+    if len(username) < USERNAME_MIN_LENGTH or len(username) > USERNAME_MAX_LENGTH:
+        return False, f"사용자명은 {USERNAME_MIN_LENGTH}~{USERNAME_MAX_LENGTH}자 사이여야 합니다."
+    if not USERNAME_PATTERN.match(username):
+        return False, "사용자명은 영문자, 숫자, 언더스코어만 사용할 수 있습니다."
+    return True, ""
+
+def validate_password(password):
+    if not password:
+        return False, "비밀번호는 필수입니다."
+    if len(password) < PASSWORD_MIN_LENGTH or len(password) > PASSWORD_MAX_LENGTH:
+        return False, f"비밀번호는 {PASSWORD_MIN_LENGTH}~{PASSWORD_MAX_LENGTH}자 사이여야 합니다."
+    if not PASSWORD_PATTERN.match(password):
+        return False, "비밀번호는 영문자, 숫자, 특수문자를 모두 포함해야 합니다."
+    return True, ""
+
+def sanitize_input(text):
+    if not text:
+        return ""
+    # HTML 태그 제거 및 특수문자 이스케이프
+    return bleach.clean(text, strip=True)
 
 # 데이터베이스 연결 관리: 요청마다 연결 생성 후 사용, 종료 시 close
 def get_db():
@@ -68,11 +102,23 @@ def index():
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
-        username = request.form['username']
+        username = sanitize_input(request.form['username'])
         password = request.form['password']
+        
+        # 사용자명 검증
+        is_valid, error_message = validate_username(username)
+        if not is_valid:
+            flash(error_message)
+            return redirect(url_for('register'))
+            
+        # 비밀번호 검증
+        is_valid, error_message = validate_password(password)
+        if not is_valid:
+            flash(error_message)
+            return redirect(url_for('register'))
+            
         db = get_db()
         cursor = db.cursor()
-        # 중복 사용자 체크
         cursor.execute("SELECT * FROM user WHERE username = ?", (username,))
         if cursor.fetchone() is not None:
             flash('이미 존재하는 사용자명입니다.')
@@ -89,8 +135,15 @@ def register():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        username = request.form['username']
+        username = sanitize_input(request.form['username'])
         password = request.form['password']
+        
+        # 사용자명 검증
+        is_valid, error_message = validate_username(username)
+        if not is_valid:
+            flash(error_message)
+            return redirect(url_for('login'))
+            
         db = get_db()
         cursor = db.cursor()
         cursor.execute("SELECT * FROM user WHERE username = ? AND password = ?", (username, password))

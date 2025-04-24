@@ -5,6 +5,8 @@ dependencies:
   - python=3.9
   - pip
   - pip:
-    - flask 
-    - flask-socketio
-    - flask-sqlalchemy
+      - flask
+      - flask-socketio
+      - flask-sqlalchemy
+      - bleach
+      - re2
