@@ -90,6 +90,11 @@ MESSAGE_MIN_LENGTH = 1
 MESSAGE_MAX_LENGTH = 500
 MESSAGE_PATTERN = re.compile(r'^[가-힣a-zA-Z0-9\s.,!?-]+$')  # 한글, 영문, 숫자, 기본 특수문자만 허용
 
+# 신고 제한 설정
+REPORT_COOLDOWN = 3600  # 1시간
+MAX_REPORTS_PER_DAY = 5
+MAX_REPORTS_PER_USER = 3
+
 # Socket.IO 인증 데코레이터
 def authenticated_only(f):
     @wraps(f)
@@ -386,9 +391,15 @@ def init_db():
                     target_id TEXT NOT NULL,
                     reason TEXT NOT NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    status TEXT DEFAULT 'pending',
+                    reviewed_at TIMESTAMP,
+                    reviewed_by TEXT,
+                    review_comment TEXT,
                     FOREIGN KEY (reporter_id) REFERENCES user(id) ON DELETE CASCADE,
                     FOREIGN KEY (target_id) REFERENCES user(id) ON DELETE CASCADE,
-                    CONSTRAINT reason_length CHECK (length(reason) >= 10 AND length(reason) <= 500)
+                    FOREIGN KEY (reviewed_by) REFERENCES user(id) ON DELETE SET NULL,
+                    CONSTRAINT reason_length CHECK (length(reason) >= 10 AND length(reason) <= 500),
+                    CONSTRAINT status_check CHECK (status IN ('pending', 'approved', 'rejected'))
                 )
             """)
             # 로그인 시도 테이블 생성
@@ -435,6 +446,10 @@ def init_db():
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE
                 )
+            """)
+            # 사용자 테이블에 관리자 필드 추가
+            cursor.execute("""
+                ALTER TABLE user ADD COLUMN is_admin BOOLEAN DEFAULT 0
             """)
             db.commit()
             logger.info("데이터베이스 초기화 완료")
@@ -789,6 +804,47 @@ def log_audit(action, user_id, details):
     except Exception as e:
         logger.error(f"Audit Log Error: {str(e)}", exc_info=True)
 
+def check_report_limits(user_id, target_id):
+    """신고 제한 확인"""
+    db = get_db()
+    cursor = db.cursor()
+    
+    # 동일 사용자에 대한 반복 신고 제한
+    cursor.execute("""
+        SELECT COUNT(*) FROM report 
+        WHERE reporter_id = ? AND target_id = ? 
+        AND created_at > datetime('now', '-1 hour')
+    """, (user_id, target_id))
+    if cursor.fetchone()[0] > 0:
+        return False, "동일 사용자에 대한 신고는 1시간 후에 가능합니다."
+    
+    # 일일 신고 건수 제한
+    cursor.execute("""
+        SELECT COUNT(*) FROM report 
+        WHERE reporter_id = ? 
+        AND created_at > datetime('now', '-1 day')
+    """, (user_id,))
+    if cursor.fetchone()[0] >= MAX_REPORTS_PER_DAY:
+        return False, "하루 최대 5건까지만 신고할 수 있습니다."
+    
+    # 동일 사용자에 대한 총 신고 건수 제한
+    cursor.execute("""
+        SELECT COUNT(*) FROM report 
+        WHERE reporter_id = ? AND target_id = ?
+    """, (user_id, target_id))
+    if cursor.fetchone()[0] >= MAX_REPORTS_PER_USER:
+        return False, "동일 사용자에 대한 최대 신고 횟수를 초과했습니다."
+    
+    return True, ""
+
+def is_admin(user_id):
+    """관리자 여부 확인"""
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute("SELECT is_admin FROM user WHERE id = ?", (user_id,))
+    user = cursor.fetchone()
+    return user and user['is_admin']
+
 # 신고하기
 @app.route('/report', methods=['GET', 'POST'])
 @login_required
@@ -821,6 +877,12 @@ def report():
             flash('자기 자신을 신고할 수 없습니다.')
             return redirect(url_for('report'))
         
+        # 신고 제한 확인
+        can_report, message = check_report_limits(session['user_id'], target_id)
+        if not can_report:
+            flash(message)
+            return redirect(url_for('report'))
+        
         db = get_db()
         cursor = db.cursor()
         report_id = str(uuid.uuid4())
@@ -829,8 +891,8 @@ def report():
             # 신고 데이터 저장
             cursor.execute("""
                 INSERT INTO report (
-                    id, reporter_id, target_id, reason, created_at
-                ) VALUES (?, ?, ?, ?, datetime('now'))
+                    id, reporter_id, target_id, reason, created_at, status
+                ) VALUES (?, ?, ?, ?, datetime('now'), 'pending')
             """, (report_id, session['user_id'], target_id, reason))
             
             # 감사 로그 기록
@@ -842,7 +904,7 @@ def report():
             })
             
             db.commit()
-            flash('신고가 접수되었습니다.')
+            flash('신고가 접수되었습니다. 관리자 검토 후 처리됩니다.')
             return redirect(url_for('dashboard'))
         except sqlite3.IntegrityError as e:
             db.rollback()
