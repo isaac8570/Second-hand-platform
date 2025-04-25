@@ -9,14 +9,14 @@ content %}
       type="text"
       id="title"
       name="title"
-      value="{{ product.title|e }}"
+      value="{{ product.title }}"
       required
     />
   </div>
   <div class="form-group">
     <label for="description">설명</label>
     <textarea id="description" name="description" required>
-{{ product.description|e }}</textarea
+{{ product.description }}</textarea
     >
   </div>
   <div class="form-group">
@@ -25,7 +25,7 @@ content %}
       type="number"
       id="price"
       name="price"
-      value="{{ product.price|e }}"
+      value="{{ product.price }}"
       step="0.01"
       min="0"
       required

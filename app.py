@@ -5,7 +5,8 @@ import bleach
 import bcrypt
 import logging
 from datetime import datetime, timedelta
-from flask import Flask, render_template, request, redirect, url_for, session, flash, g, jsonify, Markup
+from flask import Flask, render_template, request, redirect, url_for, session, flash, g, jsonify
+from markupsafe import Markup 
 from flask_socketio import SocketIO, send
 from flask_wtf.csrf import CSRFProtect
 from functools import wraps
@@ -593,27 +594,44 @@ def edit_product(product_id):
                 return redirect(url_for('edit_product', product_id=product_id))
             
             try:
+                # 먼저 상품이 존재하는지 확인
+                cursor.execute("SELECT id FROM product WHERE id = ? AND seller_id = ?", 
+                             (product_id, session['user_id']))
+                if not cursor.fetchone():
+                    flash('상품을 찾을 수 없거나 수정 권한이 없습니다.')
+                    return redirect(url_for('dashboard'))
+                
+                # 상품 정보 업데이트
                 cursor.execute("""
                     UPDATE product 
-                    SET title = ?, description = ?, price = ?, updated_at = CURRENT_TIMESTAMP
+                    SET title = ?, description = ?, price = ?
                     WHERE id = ? AND seller_id = ?
                 """, (title, description, price, product_id, session['user_id']))
+                
+                if cursor.rowcount == 0:
+                    flash('상품 수정에 실패했습니다.')
+                    return redirect(url_for('edit_product', product_id=product_id))
+                    
                 db.commit()
                 flash('상품이 수정되었습니다.')
                 return redirect(url_for('view_product', product_id=product_id))
+                
             except sqlite3.IntegrityError as e:
                 db.rollback()
                 logger.error(f"Database Integrity Error: {str(e)}")
                 flash('데이터베이스 제약조건 위반: 상품 수정에 실패했습니다.')
                 return redirect(url_for('edit_product', product_id=product_id))
             
+        # GET 요청 처리
         cursor.execute("SELECT * FROM product WHERE id = ?", (product_id,))
         product = cursor.fetchone()
         if not product:
             flash('상품을 찾을 수 없습니다.')
             return redirect(url_for('dashboard'))
             
-        return render_template('edit_product.html', product=product)
+        # SQLite Row 객체를 dict로 변환
+        product_dict = dict(product)
+        return render_template('edit_product.html', product=product_dict)
     except Exception as e:
         logger.error(f"Product Edit Error: {str(e)}", exc_info=True)
         flash('상품 수정 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.')
