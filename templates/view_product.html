@@ -10,6 +10,30 @@ endblock %} {% block content %}
     <p>판매자 소개: {{ seller.bio|e }}</p>
     {% endif %}
   </div>
+
+  {% if session.get('user_id') == product.seller_id %}
+  <div class="product-actions">
+    <a
+      href="{{ url_for('edit_product', product_id=product.id) }}"
+      class="button edit"
+      >수정</a
+    >
+    <form
+      method="POST"
+      action="{{ url_for('delete_product', product_id=product.id) }}"
+      class="delete-form"
+    >
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+      <button
+        type="submit"
+        class="button delete"
+        onclick="return confirm('정말로 이 상품을 삭제하시겠습니까?')"
+      >
+        삭제
+      </button>
+    </form>
+  </div>
+  {% endif %}
 </div>
 
 <style>
@@ -42,6 +66,45 @@ endblock %} {% block content %}
     margin-top: 30px;
     padding-top: 20px;
     border-top: 1px solid #eee;
+  }
+
+  .product-actions {
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid #eee;
+    display: flex;
+    gap: 10px;
+  }
+
+  .button {
+    padding: 8px 16px;
+    border-radius: 4px;
+    text-decoration: none;
+    cursor: pointer;
+    border: none;
+    font-size: 14px;
+  }
+
+  .button.edit {
+    background-color: #007bff;
+    color: white;
+  }
+
+  .button.edit:hover {
+    background-color: #0056b3;
+  }
+
+  .button.delete {
+    background-color: #dc3545;
+    color: white;
+  }
+
+  .button.delete:hover {
+    background-color: #c82333;
+  }
+
+  .delete-form {
+    display: inline;
   }
 </style>
 {% endblock %}
