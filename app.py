@@ -11,6 +11,8 @@ from flask_socketio import SocketIO, send, emit, disconnect
 from flask_wtf.csrf import CSRFProtect
 from functools import wraps
 from werkzeug.exceptions import HTTPException
+from collections import defaultdict
+import time
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret!'
@@ -26,6 +28,9 @@ app.config['REAUTH_EXPIRY'] = 300    # 5분
 # 로그인 실패 설정
 app.config['MAX_LOGIN_ATTEMPTS'] = 5
 app.config['LOGIN_TIMEOUT'] = 300    # 5분
+# Rate Limiting 설정
+app.config['RATE_LIMIT_WINDOW'] = 60  # 60초
+app.config['RATE_LIMIT_MAX_MESSAGES'] = 10  # 60초당 최대 10개 메시지
 
 # 로깅 설정
 logging.basicConfig(
@@ -38,6 +43,9 @@ logger = logging.getLogger(__name__)
 DATABASE = 'market.db'
 socketio = SocketIO(app, cors_allowed_origins="*")
 csrf = CSRFProtect(app)
+
+# Rate Limiting을 위한 메시지 카운터
+message_counters = defaultdict(list)
 
 # 입력 검증을 위한 상수
 USERNAME_MIN_LENGTH = 3
@@ -110,16 +118,43 @@ def validate_message_data(data):
     
     return errors
 
+def is_rate_limited(user_id):
+    """사용자의 메시지 전송 제한 확인"""
+    current_time = time.time()
+    window_start = current_time - app.config['RATE_LIMIT_WINDOW']
+    
+    # 오래된 메시지 기록 제거
+    message_counters[user_id] = [t for t in message_counters[user_id] if t > window_start]
+    
+    # 현재 윈도우 내의 메시지 수 확인
+    if len(message_counters[user_id]) >= app.config['RATE_LIMIT_MAX_MESSAGES']:
+        return True
+    
+    # 새 메시지 기록 추가
+    message_counters[user_id].append(current_time)
+    return False
+
 @socketio.on('send_message')
 @authenticated_only
 def handle_send_message_event(data):
     try:
+        user_id = session.get('user_id')
+        
+        # Rate Limiting 확인
+        if is_rate_limited(user_id):
+            emit('error', {
+                'error': True,
+                'message': f'너무 많은 메시지를 보냈습니다. {app.config["RATE_LIMIT_WINDOW"]}초 후에 다시 시도해주세요.',
+                'username': 'System'
+            })
+            return
+        
         # 메시지 데이터 검증
         errors = validate_message_data(data)
         if errors:
             emit('error', {
                 'error': True,
-                'message': errors[0],  # 첫 번째 오류 메시지만 전송
+                'message': errors[0],
                 'username': 'System'
             })
             return
