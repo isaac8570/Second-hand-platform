@@ -14,6 +14,7 @@ from werkzeug.exceptions import HTTPException
 from collections import defaultdict
 import time
 import os
+import json
 
 # 개발 환경 설정
 DEBUG = True
@@ -424,6 +425,17 @@ def init_db():
                     CONSTRAINT amount_positive CHECK (amount > 0)
                 )
             """)
+            # 감사 로그 테이블 생성
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS audit_log (
+                    id TEXT PRIMARY KEY,
+                    action TEXT NOT NULL,
+                    user_id TEXT NOT NULL,
+                    details TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE
+                )
+            """)
             db.commit()
             logger.info("데이터베이스 초기화 완료")
         except Exception as e:
@@ -763,6 +775,20 @@ def validate_report_data(target_id, reason):
     
     return errors
 
+def log_audit(action, user_id, details):
+    """감사 로그 기록"""
+    try:
+        db = get_db()
+        cursor = db.cursor()
+        log_id = str(uuid.uuid4())
+        cursor.execute("""
+            INSERT INTO audit_log (id, action, user_id, details, created_at)
+            VALUES (?, ?, ?, ?, datetime('now'))
+        """, (log_id, action, user_id, json.dumps(details)))
+        db.commit()
+    except Exception as e:
+        logger.error(f"Audit Log Error: {str(e)}", exc_info=True)
+
 # 신고하기
 @app.route('/report', methods=['GET', 'POST'])
 @login_required
@@ -800,10 +826,21 @@ def report():
         report_id = str(uuid.uuid4())
         
         try:
-            cursor.execute(
-                "INSERT INTO report (id, reporter_id, target_id, reason) VALUES (?, ?, ?, ?)",
-                (report_id, session['user_id'], target_id, reason)
-            )
+            # 신고 데이터 저장
+            cursor.execute("""
+                INSERT INTO report (
+                    id, reporter_id, target_id, reason, created_at
+                ) VALUES (?, ?, ?, ?, datetime('now'))
+            """, (report_id, session['user_id'], target_id, reason))
+            
+            # 감사 로그 기록
+            log_audit('report_submitted', session['user_id'], {
+                'report_id': report_id,
+                'target_id': target_id,
+                'reason_length': len(reason),
+                'ip_address': request.remote_addr
+            })
+            
             db.commit()
             flash('신고가 접수되었습니다.')
             return redirect(url_for('dashboard'))
