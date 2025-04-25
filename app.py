@@ -55,6 +55,11 @@ PRODUCT_DESCRIPTION_MAX_LENGTH = 1000
 PRODUCT_PRICE_MIN = 0
 PRODUCT_PRICE_MAX = 1000000000  # 10억
 
+# 채팅 메시지 검증을 위한 상수
+MESSAGE_MIN_LENGTH = 1
+MESSAGE_MAX_LENGTH = 500
+MESSAGE_PATTERN = re.compile(r'^[가-힣a-zA-Z0-9\s.,!?-]+$')  # 한글, 영문, 숫자, 기본 특수문자만 허용
+
 def validate_username(username):
     if not username:
         return False, "사용자명은 필수입니다."
@@ -140,6 +145,16 @@ def validate_product_price(price):
         return False, "상품 가격은 숫자만 입력 가능합니다."
     return True, ""
 
+def validate_chat_message(message):
+    """채팅 메시지 유효성 검증"""
+    if not message:
+        return False, "메시지는 필수입니다."
+    if len(message) < MESSAGE_MIN_LENGTH or len(message) > MESSAGE_MAX_LENGTH:
+        return False, f"메시지는 {MESSAGE_MIN_LENGTH}~{MESSAGE_MAX_LENGTH}자 사이여야 합니다."
+    if not MESSAGE_PATTERN.match(message):
+        return False, "메시지에는 한글, 영문, 숫자, 기본 특수문자(.,!?-)만 사용할 수 있습니다."
+    return True, ""
+
 # 데이터베이스 연결 관리: 요청마다 연결 생성 후 사용, 종료 시 close
 def get_db():
     db = getattr(g, '_database', None)
@@ -209,6 +224,16 @@ def init_db():
                 ip_address TEXT NOT NULL,
                 success BOOLEAN NOT NULL,
                 CONSTRAINT ip_address_format CHECK (ip_address GLOB '*.*.*.*')
+            )
+        """)
+        # 채팅 메시지 테이블 생성
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS chat_message (
+                id TEXT PRIMARY KEY,
+                username TEXT NOT NULL,
+                message TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                CONSTRAINT message_length CHECK (length(message) >= 1 AND length(message) <= 500)
             )
         """)
         db.commit()
@@ -551,13 +576,52 @@ def reauth():
 # 실시간 채팅: 클라이언트가 메시지를 보내면 전체 브로드캐스트
 @socketio.on('send_message')
 def handle_send_message_event(data):
-    # 채팅 메시지 sanitize
-    if 'message' in data:
-        data['message'] = sanitize_input(data['message'])
-    if 'username' in data:
-        data['username'] = sanitize_input(data['username'])
-    data['message_id'] = str(uuid.uuid4())
-    send(data, broadcast=True)
+    try:
+        # 메시지와 사용자명 sanitize
+        message = sanitize_input(data.get('message', ''))
+        username = sanitize_input(data.get('username', ''))
+        
+        # 메시지 검증
+        is_valid, error_message = validate_chat_message(message)
+        if not is_valid:
+            # 클라이언트에게 오류 메시지 전송
+            send({
+                'error': True,
+                'message': error_message,
+                'username': 'System'
+            })
+            return
+        
+        # 메시지 ID 생성
+        message_id = str(uuid.uuid4())
+        
+        # 메시지 저장 (선택적)
+        try:
+            db = get_db()
+            cursor = db.cursor()
+            cursor.execute("""
+                INSERT INTO chat_message (id, username, message, created_at)
+                VALUES (?, ?, ?, datetime('now'))
+            """, (message_id, username, message))
+            db.commit()
+        except Exception as e:
+            logger.error(f"Chat Message Save Error: {str(e)}", exc_info=True)
+        
+        # 메시지 브로드캐스트
+        send({
+            'message_id': message_id,
+            'username': username,
+            'message': message,
+            'timestamp': datetime.now().isoformat()
+        }, broadcast=True)
+        
+    except Exception as e:
+        logger.error(f"Chat Message Error: {str(e)}", exc_info=True)
+        send({
+            'error': True,
+            'message': '메시지 전송 중 오류가 발생했습니다.',
+            'username': 'System'
+        })
 
 def is_product_owner(product_id):
     """상품 소유자 확인"""

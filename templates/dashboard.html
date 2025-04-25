@@ -48,27 +48,50 @@ content %}
 
 <script type="text/javascript">
   var socket = io();
+  var messages = document.getElementById("messages");
+  var chatInput = document.getElementById("chat_input");
+
   socket.on("connect", function () {
     console.log("채팅 서버에 연결됨");
   });
+
   socket.on("message", function (data) {
-    var messages = document.getElementById("messages");
     var item = document.createElement("li");
-    item.textContent = data.username + ": " + data.message;
+
+    if (data.error) {
+      item.className = "error-message";
+      item.textContent = data.message;
+    } else {
+      item.className = "chat-message";
+      var timestamp = new Date(data.timestamp).toLocaleTimeString();
+      item.innerHTML = `
+        <span class="username">${data.username}</span>
+        <span class="message">${data.message}</span>
+        <span class="timestamp">${timestamp}</span>
+      `;
+    }
+
     messages.appendChild(item);
     window.scrollTo(0, document.body.scrollHeight);
   });
+
   function sendMessage() {
-    var input = document.getElementById("chat_input");
-    var message = input.value;
+    var message = chatInput.value.trim();
     if (message) {
       socket.emit("send_message", {
         username: "{{ user.username }}",
         message: message,
       });
-      input.value = "";
+      chatInput.value = "";
     }
   }
+
+  // Enter 키로 메시지 전송
+  chatInput.addEventListener("keypress", function (e) {
+    if (e.key === "Enter") {
+      sendMessage();
+    }
+  });
 </script>
 
 <style>
@@ -144,5 +167,55 @@ content %}
   .product-item .description {
     color: #666;
   }
+
+  .chat-message {
+    padding: 8px 12px;
+    margin: 4px 0;
+    background-color: #f8f9fa;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .chat-message .username {
+    font-weight: bold;
+    color: #007bff;
+  }
+
+  .chat-message .message {
+    flex: 1;
+  }
+
+  .chat-message .timestamp {
+    font-size: 0.8em;
+    color: #6c757d;
+  }
+
+  .error-message {
+    padding: 8px 12px;
+    margin: 4px 0;
+    background-color: #f8d7da;
+    color: #721c24;
+    border-radius: 4px;
+    font-size: 0.9em;
+  }
+
+  #chat_input {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    margin-top: 10px;
+  }
+
+  #messages {
+    height: 300px;
+    overflow-y: auto;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background-color: white;
+  }
 </style>
-{% endblock %}
+{% endblock %} background-color: white;
