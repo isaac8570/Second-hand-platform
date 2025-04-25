@@ -741,24 +741,67 @@ def view_product(product_id):
         flash('상품 정보를 불러오는 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.')
         return redirect(url_for('dashboard'))
 
+def validate_report_data(target_id, reason):
+    """신고 데이터 유효성 검증"""
+    errors = []
+    
+    # 신고 대상 ID 검증
+    if not target_id:
+        errors.append("신고 대상은 필수입니다.")
+    else:
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute("SELECT id FROM user WHERE id = ?", (target_id,))
+        if not cursor.fetchone():
+            errors.append("존재하지 않는 사용자입니다.")
+    
+    # 신고 사유 검증
+    if not reason:
+        errors.append("신고 사유는 필수입니다.")
+    elif len(reason) < 10 or len(reason) > 500:
+        errors.append("신고 사유는 10~500자 사이여야 합니다.")
+    
+    return errors
+
 # 신고하기
 @app.route('/report', methods=['GET', 'POST'])
+@login_required
+@handle_db_error
 def report():
-    if 'user_id' not in session:
-        return redirect(url_for('login'))
     if request.method == 'POST':
         target_id = request.form['target_id']
-        reason = request.form['reason']
+        reason = sanitize_input(request.form['reason'])
+        
+        # 데이터 유효성 검증
+        errors = validate_report_data(target_id, reason)
+        if errors:
+            for error in errors:
+                flash(error)
+            return redirect(url_for('report'))
+        
+        # 자기 자신 신고 방지
+        if target_id == session['user_id']:
+            flash('자기 자신을 신고할 수 없습니다.')
+            return redirect(url_for('report'))
+        
         db = get_db()
         cursor = db.cursor()
         report_id = str(uuid.uuid4())
-        cursor.execute(
-            "INSERT INTO report (id, reporter_id, target_id, reason) VALUES (?, ?, ?, ?)",
-            (report_id, session['user_id'], target_id, reason)
-        )
-        db.commit()
-        flash('신고가 접수되었습니다.')
-        return redirect(url_for('dashboard'))
+        
+        try:
+            cursor.execute(
+                "INSERT INTO report (id, reporter_id, target_id, reason) VALUES (?, ?, ?, ?)",
+                (report_id, session['user_id'], target_id, reason)
+            )
+            db.commit()
+            flash('신고가 접수되었습니다.')
+            return redirect(url_for('dashboard'))
+        except sqlite3.IntegrityError as e:
+            db.rollback()
+            logger.error(f"Report Error: {str(e)}")
+            flash('신고 처리 중 오류가 발생했습니다.')
+            return redirect(url_for('report'))
+            
     return render_template('report.html')
 
 # 재인증
