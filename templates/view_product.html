@@ -1,8 +1,47 @@
-{% extends "base.html" %}
-{% block title %}상품 상세보기{% endblock %}
-{% block content %}
-<h2>{{ product.title }}</h2>
-<p>{{ product.description }}</p>
-<p>가격: {{ product.price }}</p>
-<p>판매자: {{ seller.username if seller else '알 수 없음' }}</p>
+{% extends "base.html" %} {% block title %}{{ product.title|e }} - 상품 상세{%
+endblock %} {% block content %}
+<div class="product-detail">
+  <h1>{{ product.title|e }}</h1>
+  <p class="price">가격: {{ product.price|e }}원</p>
+  <div class="description">{{ product.description|safe }}</div>
+  <div class="seller-info">
+    <p>판매자: {{ seller.username|e }}</p>
+    {% if seller.bio %}
+    <p>판매자 소개: {{ seller.bio|e }}</p>
+    {% endif %}
+  </div>
+</div>
+
+<style>
+  .product-detail {
+    padding: 20px;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  }
+
+  .product-detail h1 {
+    margin-bottom: 20px;
+    color: #333;
+  }
+
+  .price {
+    font-size: 1.2em;
+    color: #28a745;
+    font-weight: bold;
+    margin: 15px 0;
+  }
+
+  .description {
+    margin: 20px 0;
+    line-height: 1.6;
+    color: #666;
+  }
+
+  .seller-info {
+    margin-top: 30px;
+    padding-top: 20px;
+    border-top: 1px solid #eee;
+  }
+</style>
 {% endblock %}

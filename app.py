@@ -5,7 +5,7 @@ import bleach
 import bcrypt
 import logging
 from datetime import datetime, timedelta
-from flask import Flask, render_template, request, redirect, url_for, session, flash, g, jsonify
+from flask import Flask, render_template, request, redirect, url_for, session, flash, g, jsonify, Markup
 from flask_socketio import SocketIO, send
 from flask_wtf.csrf import CSRFProtect
 from functools import wraps
@@ -75,8 +75,25 @@ def validate_password(password):
 def sanitize_input(text):
     if not text:
         return ""
+    # HTML 태그 허용 목록 설정
+    allowed_tags = ['p', 'br', 'strong', 'em', 'u', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6']
+    allowed_attributes = {}  # 모든 속성 제거
     # HTML 태그 제거 및 특수문자 이스케이프
-    return bleach.clean(text, strip=True)
+    cleaned_text = bleach.clean(
+        text,
+        tags=allowed_tags,
+        attributes=allowed_attributes,
+        strip=True
+    )
+    # 링크를 찾아서 클릭 가능한 텍스트로 변환
+    cleaned_text = bleach.linkify(cleaned_text)
+    return cleaned_text
+
+def format_product_description(description):
+    """상품 설명을 안전하게 포맷팅"""
+    # 줄바꿈을 <br> 태그로 변환하고 이스케이프 처리
+    escaped_description = description.replace('\n', '<br>')
+    return Markup(escaped_description)
 
 def hash_password(password):
     # 비밀번호를 바이트로 변환
@@ -469,6 +486,11 @@ def view_product(product_id):
         # 판매자 정보 조회
         cursor.execute("SELECT * FROM user WHERE id = ?", (product['seller_id'],))
         seller = cursor.fetchone()
+        
+        # 상품 설명 포맷팅
+        product = dict(product)  # SQLite Row 객체를 dict로 변환
+        product['description'] = format_product_description(product['description'])
+        
         return render_template('view_product.html', product=product, seller=seller)
     except Exception as e:
         logger.error(f"Product View Error: {str(e)}", exc_info=True)
@@ -517,6 +539,11 @@ def reauth():
 # 실시간 채팅: 클라이언트가 메시지를 보내면 전체 브로드캐스트
 @socketio.on('send_message')
 def handle_send_message_event(data):
+    # 채팅 메시지 sanitize
+    if 'message' in data:
+        data['message'] = sanitize_input(data['message'])
+    if 'username' in data:
+        data['username'] = sanitize_input(data['username'])
     data['message_id'] = str(uuid.uuid4())
     send(data, broadcast=True)
 
