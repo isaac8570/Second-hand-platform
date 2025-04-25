@@ -55,6 +55,24 @@ content %}
     console.log("채팅 서버에 연결됨");
   });
 
+  socket.on("connect_error", function (error) {
+    console.error("채팅 서버 연결 실패:", error);
+    var item = document.createElement("li");
+    item.className = "error-message";
+    item.textContent =
+      "채팅 서버 연결에 실패했습니다. 페이지를 새로고침해주세요.";
+    messages.appendChild(item);
+  });
+
+  socket.on("disconnect", function () {
+    console.log("채팅 서버 연결 해제");
+    var item = document.createElement("li");
+    item.className = "error-message";
+    item.textContent =
+      "채팅 서버와의 연결이 끊어졌습니다. 페이지를 새로고침해주세요.";
+    messages.appendChild(item);
+  });
+
   socket.on("message", function (data) {
     var item = document.createElement("li");
 
@@ -73,6 +91,13 @@ content %}
 
     messages.appendChild(item);
     window.scrollTo(0, document.body.scrollHeight);
+  });
+
+  socket.on("error", function (data) {
+    var item = document.createElement("li");
+    item.className = "error-message";
+    item.textContent = data.message;
+    messages.appendChild(item);
   });
 
   function sendMessage() {
@@ -218,4 +243,4 @@ content %}
     background-color: white;
   }
 </style>
-{% endblock %} background-color: white;
+{% endblock %}

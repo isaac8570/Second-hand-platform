@@ -7,7 +7,7 @@ import logging
 from datetime import datetime, timedelta
 from flask import Flask, render_template, request, redirect, url_for, session, flash, g, jsonify
 from markupsafe import Markup 
-from flask_socketio import SocketIO, send
+from flask_socketio import SocketIO, send, emit, disconnect
 from flask_wtf.csrf import CSRFProtect
 from functools import wraps
 from werkzeug.exceptions import HTTPException
@@ -36,7 +36,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 DATABASE = 'market.db'
-socketio = SocketIO(app)
+socketio = SocketIO(app, cors_allowed_origins="*")
 csrf = CSRFProtect(app)
 
 # 입력 검증을 위한 상수
@@ -59,6 +59,78 @@ PRODUCT_PRICE_MAX = 1000000000  # 10억
 MESSAGE_MIN_LENGTH = 1
 MESSAGE_MAX_LENGTH = 500
 MESSAGE_PATTERN = re.compile(r'^[가-힣a-zA-Z0-9\s.,!?-]+$')  # 한글, 영문, 숫자, 기본 특수문자만 허용
+
+# Socket.IO 인증 데코레이터
+def authenticated_only(f):
+    @wraps(f)
+    def wrapped(*args, **kwargs):
+        if not session.get('user_id'):
+            disconnect()
+            return
+        return f(*args, **kwargs)
+    return wrapped
+
+@socketio.on('connect')
+def handle_connect():
+    if not session.get('user_id'):
+        logger.warning(f"Unauthorized socket connection attempt from {request.remote_addr}")
+        return False
+    logger.info(f"Socket connected: {session.get('user_id')}")
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    if session.get('user_id'):
+        logger.info(f"Socket disconnected: {session.get('user_id')}")
+
+@socketio.on('send_message')
+@authenticated_only
+def handle_send_message_event(data):
+    try:
+        # 메시지와 사용자명 sanitize
+        message = sanitize_input(data.get('message', ''))
+        username = sanitize_input(data.get('username', ''))
+        
+        # 메시지 검증
+        is_valid, error_message = validate_chat_message(message)
+        if not is_valid:
+            # 클라이언트에게 오류 메시지 전송
+            emit('error', {
+                'error': True,
+                'message': error_message,
+                'username': 'System'
+            })
+            return
+        
+        # 메시지 ID 생성
+        message_id = str(uuid.uuid4())
+        
+        # 메시지 저장 (선택적)
+        try:
+            db = get_db()
+            cursor = db.cursor()
+            cursor.execute("""
+                INSERT INTO chat_message (id, username, message, created_at)
+                VALUES (?, ?, ?, datetime('now'))
+            """, (message_id, username, message))
+            db.commit()
+        except Exception as e:
+            logger.error(f"Chat Message Save Error: {str(e)}", exc_info=True)
+        
+        # 메시지 브로드캐스트
+        emit('message', {
+            'message_id': message_id,
+            'username': username,
+            'message': message,
+            'timestamp': datetime.now().isoformat()
+        }, broadcast=True)
+        
+    except Exception as e:
+        logger.error(f"Chat Message Error: {str(e)}", exc_info=True)
+        emit('error', {
+            'error': True,
+            'message': '메시지 전송 중 오류가 발생했습니다.',
+            'username': 'System'
+        })
 
 def validate_username(username):
     if not username:
@@ -572,56 +644,6 @@ def reauth():
             flash('비밀번호가 올바르지 않습니다.')
             return redirect(url_for('reauth'))
     return render_template('reauth.html')
-
-# 실시간 채팅: 클라이언트가 메시지를 보내면 전체 브로드캐스트
-@socketio.on('send_message')
-def handle_send_message_event(data):
-    try:
-        # 메시지와 사용자명 sanitize
-        message = sanitize_input(data.get('message', ''))
-        username = sanitize_input(data.get('username', ''))
-        
-        # 메시지 검증
-        is_valid, error_message = validate_chat_message(message)
-        if not is_valid:
-            # 클라이언트에게 오류 메시지 전송
-            send({
-                'error': True,
-                'message': error_message,
-                'username': 'System'
-            })
-            return
-        
-        # 메시지 ID 생성
-        message_id = str(uuid.uuid4())
-        
-        # 메시지 저장 (선택적)
-        try:
-            db = get_db()
-            cursor = db.cursor()
-            cursor.execute("""
-                INSERT INTO chat_message (id, username, message, created_at)
-                VALUES (?, ?, ?, datetime('now'))
-            """, (message_id, username, message))
-            db.commit()
-        except Exception as e:
-            logger.error(f"Chat Message Save Error: {str(e)}", exc_info=True)
-        
-        # 메시지 브로드캐스트
-        send({
-            'message_id': message_id,
-            'username': username,
-            'message': message,
-            'timestamp': datetime.now().isoformat()
-        }, broadcast=True)
-        
-    except Exception as e:
-        logger.error(f"Chat Message Error: {str(e)}", exc_info=True)
-        send({
-            'error': True,
-            'message': '메시지 전송 중 오류가 발생했습니다.',
-            'username': 'System'
-        })
 
 def is_product_owner(product_id):
     """상품 소유자 확인"""
