@@ -55,7 +55,7 @@ PRODUCT_DESCRIPTION_MAX_LENGTH = 1000
 PRODUCT_PRICE_MIN = 0
 PRODUCT_PRICE_MAX = 1000000000  # 10억
 
-# 채팅 메시지 검증을 위한 상수
+# 메시지 검증을 위한 상수
 MESSAGE_MIN_LENGTH = 1
 MESSAGE_MAX_LENGTH = 500
 MESSAGE_PATTERN = re.compile(r'^[가-힣a-zA-Z0-9\s.,!?-]+$')  # 한글, 영문, 숫자, 기본 특수문자만 허용
@@ -82,21 +82,57 @@ def handle_disconnect():
     if session.get('user_id'):
         logger.info(f"Socket disconnected: {session.get('user_id')}")
 
+def validate_message_data(data):
+    """메시지 데이터 유효성 검증"""
+    errors = []
+    
+    # 필수 필드 존재 여부 확인
+    if not isinstance(data, dict):
+        return ["잘못된 메시지 형식입니다."]
+    
+    # 사용자명 검증
+    username = data.get('username', '')
+    if not username:
+        errors.append("사용자명은 필수입니다.")
+    elif len(username) < USERNAME_MIN_LENGTH or len(username) > USERNAME_MAX_LENGTH:
+        errors.append(f"사용자명은 {USERNAME_MIN_LENGTH}~{USERNAME_MAX_LENGTH}자 사이여야 합니다.")
+    elif not USERNAME_PATTERN.match(username):
+        errors.append("사용자명은 영문자, 숫자, 언더스코어만 사용할 수 있습니다.")
+    
+    # 메시지 내용 검증
+    message = data.get('message', '')
+    if not message:
+        errors.append("메시지는 필수입니다.")
+    elif len(message) < MESSAGE_MIN_LENGTH or len(message) > MESSAGE_MAX_LENGTH:
+        errors.append(f"메시지는 {MESSAGE_MIN_LENGTH}~{MESSAGE_MAX_LENGTH}자 사이여야 합니다.")
+    elif not MESSAGE_PATTERN.match(message):
+        errors.append("메시지에는 한글, 영문, 숫자, 기본 특수문자(.,!?-)만 사용할 수 있습니다.")
+    
+    return errors
+
 @socketio.on('send_message')
 @authenticated_only
 def handle_send_message_event(data):
     try:
-        # 메시지와 사용자명 sanitize
-        message = sanitize_input(data.get('message', ''))
-        username = sanitize_input(data.get('username', ''))
-        
-        # 메시지 검증
-        is_valid, error_message = validate_chat_message(message)
-        if not is_valid:
-            # 클라이언트에게 오류 메시지 전송
+        # 메시지 데이터 검증
+        errors = validate_message_data(data)
+        if errors:
             emit('error', {
                 'error': True,
-                'message': error_message,
+                'message': errors[0],  # 첫 번째 오류 메시지만 전송
+                'username': 'System'
+            })
+            return
+        
+        # 메시지와 사용자명 sanitize
+        message = sanitize_input(data['message'])
+        username = sanitize_input(data['username'])
+        
+        # 세션의 사용자명과 일치하는지 확인
+        if username != session.get('username'):
+            emit('error', {
+                'error': True,
+                'message': '잘못된 사용자명입니다.',
                 'username': 'System'
             })
             return
@@ -104,7 +140,7 @@ def handle_send_message_event(data):
         # 메시지 ID 생성
         message_id = str(uuid.uuid4())
         
-        # 메시지 저장 (선택적)
+        # 메시지 저장
         try:
             db = get_db()
             cursor = db.cursor()
@@ -115,6 +151,12 @@ def handle_send_message_event(data):
             db.commit()
         except Exception as e:
             logger.error(f"Chat Message Save Error: {str(e)}", exc_info=True)
+            emit('error', {
+                'error': True,
+                'message': '메시지 저장 중 오류가 발생했습니다.',
+                'username': 'System'
+            })
+            return
         
         # 메시지 브로드캐스트
         emit('message', {
