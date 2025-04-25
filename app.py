@@ -164,7 +164,10 @@ def init_db():
                 id TEXT PRIMARY KEY,
                 username TEXT UNIQUE NOT NULL,
                 password TEXT NOT NULL,
-                bio TEXT
+                bio TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                CONSTRAINT username_length CHECK (length(username) >= 3 AND length(username) <= 20)
             )
         """)
         # 상품 테이블 생성
@@ -174,7 +177,13 @@ def init_db():
                 title TEXT NOT NULL,
                 description TEXT NOT NULL,
                 price TEXT NOT NULL,
-                seller_id TEXT NOT NULL
+                seller_id TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (seller_id) REFERENCES user(id) ON DELETE CASCADE,
+                CONSTRAINT title_length CHECK (length(title) >= 2 AND length(title) <= 100),
+                CONSTRAINT description_length CHECK (length(description) >= 10 AND length(description) <= 1000),
+                CONSTRAINT price_format CHECK (price GLOB '[0-9]*.[0-9][0-9]' OR price GLOB '[0-9]*')
             )
         """)
         # 신고 테이블 생성
@@ -183,7 +192,11 @@ def init_db():
                 id TEXT PRIMARY KEY,
                 reporter_id TEXT NOT NULL,
                 target_id TEXT NOT NULL,
-                reason TEXT NOT NULL
+                reason TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (reporter_id) REFERENCES user(id) ON DELETE CASCADE,
+                FOREIGN KEY (target_id) REFERENCES user(id) ON DELETE CASCADE,
+                CONSTRAINT reason_length CHECK (length(reason) >= 10 AND length(reason) <= 500)
             )
         """)
         # 로그인 시도 테이블 생성
@@ -193,7 +206,8 @@ def init_db():
                 username TEXT NOT NULL,
                 attempt_time TIMESTAMP NOT NULL,
                 ip_address TEXT NOT NULL,
-                success BOOLEAN NOT NULL
+                success BOOLEAN NOT NULL,
+                CONSTRAINT ip_address_format CHECK (ip_address GLOB '*.*.*.*')
             )
         """)
         db.commit()
@@ -437,34 +451,31 @@ def new_product():
             description = sanitize_input(request.form['description'])
             price = request.form['price']
             
-            # 제목 검증
-            is_valid, error_message = validate_product_title(title)
-            if not is_valid:
-                flash(error_message)
+            # 데이터 유효성 검증
+            errors = validate_product_data(title, description, price)
+            if errors:
+                for error in errors:
+                    flash(error)
                 return redirect(url_for('new_product'))
-                
-            # 설명 검증
-            is_valid, error_message = validate_product_description(description)
-            if not is_valid:
-                flash(error_message)
-                return redirect(url_for('new_product'))
-                
-            # 가격 검증
-            is_valid, error_message = validate_product_price(price)
-            if not is_valid:
-                flash(error_message)
-                return redirect(url_for('new_product'))
-                
+            
             db = get_db()
             cursor = db.cursor()
             product_id = str(uuid.uuid4())
-            cursor.execute(
-                "INSERT INTO product (id, title, description, price, seller_id) VALUES (?, ?, ?, ?, ?)",
-                (product_id, title, description, price, session['user_id'])
-            )
-            db.commit()
-            flash('상품이 등록되었습니다.')
-            return redirect(url_for('dashboard'))
+            
+            try:
+                cursor.execute("""
+                    INSERT INTO product (id, title, description, price, seller_id)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (product_id, title, description, price, session['user_id']))
+                db.commit()
+                flash('상품이 등록되었습니다.')
+                return redirect(url_for('dashboard'))
+            except sqlite3.IntegrityError as e:
+                db.rollback()
+                logger.error(f"Database Integrity Error: {str(e)}")
+                flash('데이터베이스 제약조건 위반: 상품 등록에 실패했습니다.')
+                return redirect(url_for('new_product'))
+                
         except Exception as e:
             logger.error(f"Product Registration Error: {str(e)}", exc_info=True)
             flash('상품 등록 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.')
@@ -574,32 +585,27 @@ def edit_product(product_id):
             description = sanitize_input(request.form['description'])
             price = request.form['price']
             
-            # 제목 검증
-            is_valid, error_message = validate_product_title(title)
-            if not is_valid:
-                flash(error_message)
+            # 데이터 유효성 검증
+            errors = validate_product_data(title, description, price)
+            if errors:
+                for error in errors:
+                    flash(error)
                 return redirect(url_for('edit_product', product_id=product_id))
-                
-            # 설명 검증
-            is_valid, error_message = validate_product_description(description)
-            if not is_valid:
-                flash(error_message)
+            
+            try:
+                cursor.execute("""
+                    UPDATE product 
+                    SET title = ?, description = ?, price = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ? AND seller_id = ?
+                """, (title, description, price, product_id, session['user_id']))
+                db.commit()
+                flash('상품이 수정되었습니다.')
+                return redirect(url_for('view_product', product_id=product_id))
+            except sqlite3.IntegrityError as e:
+                db.rollback()
+                logger.error(f"Database Integrity Error: {str(e)}")
+                flash('데이터베이스 제약조건 위반: 상품 수정에 실패했습니다.')
                 return redirect(url_for('edit_product', product_id=product_id))
-                
-            # 가격 검증
-            is_valid, error_message = validate_product_price(price)
-            if not is_valid:
-                flash(error_message)
-                return redirect(url_for('edit_product', product_id=product_id))
-                
-            cursor.execute("""
-                UPDATE product 
-                SET title = ?, description = ?, price = ?
-                WHERE id = ? AND seller_id = ?
-            """, (title, description, price, product_id, session['user_id']))
-            db.commit()
-            flash('상품이 수정되었습니다.')
-            return redirect(url_for('view_product', product_id=product_id))
             
         cursor.execute("SELECT * FROM product WHERE id = ?", (product_id,))
         product = cursor.fetchone()
@@ -633,6 +639,37 @@ def delete_product(product_id):
         logger.error(f"Product Delete Error: {str(e)}", exc_info=True)
         flash('상품 삭제 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.')
         return redirect(url_for('dashboard'))
+
+def validate_product_data(title, description, price):
+    """상품 데이터 유효성 검증"""
+    errors = []
+    
+    # 제목 검증
+    if not title:
+        errors.append("제목은 필수입니다.")
+    elif len(title) < 2 or len(title) > 100:
+        errors.append("제목은 2~100자 사이여야 합니다.")
+    
+    # 설명 검증
+    if not description:
+        errors.append("설명은 필수입니다.")
+    elif len(description) < 10 or len(description) > 1000:
+        errors.append("설명은 10~1000자 사이여야 합니다.")
+    
+    # 가격 검증
+    if not price:
+        errors.append("가격은 필수입니다.")
+    else:
+        try:
+            price_num = float(price)
+            if price_num < 0:
+                errors.append("가격은 0 이상이어야 합니다.")
+            if not re.match(r'^\d+(\.\d{1,2})?$', price):
+                errors.append("가격은 소수점 둘째 자리까지만 입력 가능합니다.")
+        except ValueError:
+            errors.append("가격은 숫자만 입력 가능합니다.")
+    
+    return errors
 
 if __name__ == '__main__':
     init_db()  # 앱 컨텍스트 내에서 테이블 생성
