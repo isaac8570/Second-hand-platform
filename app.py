@@ -13,12 +13,16 @@ from functools import wraps
 from werkzeug.exceptions import HTTPException
 from collections import defaultdict
 import time
+import os
+
+# 개발 환경 설정
+DEBUG = True
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret!'
 # 세션 쿠키 보안 설정
 app.config['SESSION_COOKIE_HTTPONLY'] = True
-app.config['SESSION_COOKIE_SECURE'] = True
+app.config['SESSION_COOKIE_SECURE'] = not DEBUG  # 개발 환경에서는 False
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['PERMANENT_SESSION_LIFETIME'] = 3600  # 1시간
 app.config['SESSION_COOKIE_NAME'] = 'secure_session'
@@ -31,6 +35,9 @@ app.config['LOGIN_TIMEOUT'] = 300    # 5분
 # Rate Limiting 설정
 app.config['RATE_LIMIT_WINDOW'] = 60  # 60초
 app.config['RATE_LIMIT_MAX_MESSAGES'] = 10  # 60초당 최대 10개 메시지
+# SSL/TLS 설정
+app.config['SSL_CERT'] = 'cert.pem'
+app.config['SSL_KEY'] = 'key.pem'
 
 # 로깅 설정
 logging.basicConfig(
@@ -41,7 +48,14 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 DATABASE = 'market.db'
-socketio = SocketIO(app, cors_allowed_origins="*")
+socketio = SocketIO(
+    app,
+    cors_allowed_origins="*",
+    ssl_context=(
+        app.config['SSL_CERT'],
+        app.config['SSL_KEY']
+    ) if not DEBUG and os.path.exists(app.config['SSL_CERT']) and os.path.exists(app.config['SSL_KEY']) else None
+)
 csrf = CSRFProtect(app)
 
 # Rate Limiting을 위한 메시지 카운터
@@ -163,8 +177,13 @@ def handle_send_message_event(data):
         message = sanitize_input(data['message'])
         username = sanitize_input(data['username'])
         
-        # 세션의 사용자명과 일치하는지 확인
-        if username != session.get('username'):
+        # 현재 로그인한 사용자의 사용자명 가져오기
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute("SELECT username FROM user WHERE id = ?", (user_id,))
+        current_user = cursor.fetchone()
+        
+        if not current_user or current_user['username'] != username:
             emit('error', {
                 'error': True,
                 'message': '잘못된 사용자명입니다.',
@@ -177,8 +196,6 @@ def handle_send_message_event(data):
         
         # 메시지 저장
         try:
-            db = get_db()
-            cursor = db.cursor()
             cursor.execute("""
                 INSERT INTO chat_message (id, username, message, created_at)
                 VALUES (?, ?, ?, datetime('now'))
@@ -855,7 +872,30 @@ def validate_product_data(title, description, price):
 if __name__ == '__main__':
     init_db()  # 앱 컨텍스트 내에서 테이블 생성
     print("\n=== 서버가 시작되었습니다 ===")
-    print("로컬 주소: http://127.0.0.1:5000")
-    print("외부 접속 주소: http://localhost:5000")
+    if DEBUG:
+        print("개발 모드로 실행 중")
+        print("로컬 주소: http://127.0.0.1:5000")
+        print("외부 접속 주소: http://localhost:5000")
+    else:
+        print("운영 모드로 실행 중")
+        print("로컬 주소: https://127.0.0.1:5000")
+        print("외부 접속 주소: https://localhost:5000")
     print("===========================\n")
-    socketio.run(app, debug=True, host='0.0.0.0', port=5000)
+    
+    # SSL 인증서 확인
+    if not DEBUG and (not os.path.exists(app.config['SSL_CERT']) or not os.path.exists(app.config['SSL_KEY'])):
+        print("경고: SSL 인증서가 없습니다. 보안 연결이 비활성화됩니다.")
+        print("인증서를 생성하려면 다음 명령을 실행하세요:")
+        print("openssl req -x509 -newkey rsa:4096 -nodes -out cert.pem -keyout key.pem -days 365")
+    
+    # 서버 실행
+    if DEBUG:
+        socketio.run(app, debug=True, host='0.0.0.0', port=5000)
+    else:
+        socketio.run(
+            app,
+            debug=False,
+            host='0.0.0.0',
+            port=5000,
+            ssl_context=(app.config['SSL_CERT'], app.config['SSL_KEY'])
+        )

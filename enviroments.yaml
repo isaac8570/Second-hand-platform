@@ -12,3 +12,5 @@ dependencies:
       - re2
       - flask-wtf
       - bcrypt
+      - python-socketio
+      - pyopenssl
