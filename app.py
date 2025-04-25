@@ -769,8 +769,19 @@ def validate_report_data(target_id, reason):
 @handle_db_error
 def report():
     if request.method == 'POST':
+        # CSRF 토큰 검증
+        if not csrf.validate():
+            flash('잘못된 요청입니다.')
+            return redirect(url_for('dashboard'))
+            
         target_id = request.form['target_id']
         reason = sanitize_input(request.form['reason'])
+        
+        # 세션 유효성 검증
+        if not session.get('user_id') or not session.get('username'):
+            session.clear()
+            flash('세션이 만료되었습니다. 다시 로그인해주세요.')
+            return redirect(url_for('login'))
         
         # 데이터 유효성 검증
         errors = validate_report_data(target_id, reason)
