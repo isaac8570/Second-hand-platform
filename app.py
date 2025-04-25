@@ -22,7 +22,7 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret!'
 # 세션 쿠키 보안 설정
 app.config['SESSION_COOKIE_HTTPONLY'] = True
-app.config['SESSION_COOKIE_SECURE'] = not DEBUG  # 개발 환경에서는 False
+app.config['SESSION_COOKIE_SECURE'] = False  # 개발 환경에서는 False
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['PERMANENT_SESSION_LIFETIME'] = 3600  # 1시간
 app.config['SESSION_COOKIE_NAME'] = 'secure_session'
@@ -38,6 +38,13 @@ app.config['RATE_LIMIT_MAX_MESSAGES'] = 10  # 60초당 최대 10개 메시지
 # SSL/TLS 설정
 app.config['SSL_CERT'] = 'cert.pem'
 app.config['SSL_KEY'] = 'key.pem'
+
+# 세션 설정
+app.config['SESSION_TYPE'] = 'filesystem'
+app.config['SESSION_FILE_DIR'] = 'flask_session'
+app.config['SESSION_FILE_THRESHOLD'] = 500
+app.config['SESSION_FILE_MODE'] = 384  # 0600 in octal
+app.config['SESSION_FILE_WARNING_THRESHOLD'] = 100
 
 # 로깅 설정
 logging.basicConfig(
@@ -98,6 +105,7 @@ def handle_connect():
         logger.warning(f"Unauthorized socket connection attempt from {request.remote_addr}")
         return False
     logger.info(f"Socket connected: {session.get('user_id')}")
+    return True
 
 @socketio.on('disconnect')
 def handle_disconnect():
@@ -340,69 +348,88 @@ def init_db():
     with app.app_context():
         db = get_db()
         cursor = db.cursor()
-        # 사용자 테이블 생성
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS user (
-                id TEXT PRIMARY KEY,
-                username TEXT UNIQUE NOT NULL,
-                password TEXT NOT NULL,
-                bio TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                CONSTRAINT username_length CHECK (length(username) >= 3 AND length(username) <= 20)
-            )
-        """)
-        # 상품 테이블 생성
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS product (
-                id TEXT PRIMARY KEY,
-                title TEXT NOT NULL,
-                description TEXT NOT NULL,
-                price TEXT NOT NULL,
-                seller_id TEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (seller_id) REFERENCES user(id) ON DELETE CASCADE,
-                CONSTRAINT title_length CHECK (length(title) >= 2 AND length(title) <= 100),
-                CONSTRAINT description_length CHECK (length(description) >= 10 AND length(description) <= 1000),
-                CONSTRAINT price_format CHECK (price GLOB '[0-9]*.[0-9][0-9]' OR price GLOB '[0-9]*')
-            )
-        """)
-        # 신고 테이블 생성
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS report (
-                id TEXT PRIMARY KEY,
-                reporter_id TEXT NOT NULL,
-                target_id TEXT NOT NULL,
-                reason TEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (reporter_id) REFERENCES user(id) ON DELETE CASCADE,
-                FOREIGN KEY (target_id) REFERENCES user(id) ON DELETE CASCADE,
-                CONSTRAINT reason_length CHECK (length(reason) >= 10 AND length(reason) <= 500)
-            )
-        """)
-        # 로그인 시도 테이블 생성
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS login_attempt (
-                id TEXT PRIMARY KEY,
-                username TEXT NOT NULL,
-                attempt_time TIMESTAMP NOT NULL,
-                ip_address TEXT NOT NULL,
-                success BOOLEAN NOT NULL,
-                CONSTRAINT ip_address_format CHECK (ip_address GLOB '*.*.*.*')
-            )
-        """)
-        # 채팅 메시지 테이블 생성
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS chat_message (
-                id TEXT PRIMARY KEY,
-                username TEXT NOT NULL,
-                message TEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                CONSTRAINT message_length CHECK (length(message) >= 1 AND length(message) <= 500)
-            )
-        """)
-        db.commit()
+        try:
+            # 사용자 테이블 생성
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS user (
+                    id TEXT PRIMARY KEY,
+                    username TEXT UNIQUE NOT NULL,
+                    password TEXT NOT NULL,
+                    bio TEXT,
+                    balance DECIMAL(10,2) DEFAULT 0.00,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    CONSTRAINT username_length CHECK (length(username) >= 3 AND length(username) <= 20),
+                    CONSTRAINT balance_non_negative CHECK (balance >= 0)
+                )
+            """)
+            # 상품 테이블 생성
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS product (
+                    id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    description TEXT NOT NULL,
+                    price TEXT NOT NULL,
+                    seller_id TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (seller_id) REFERENCES user(id) ON DELETE CASCADE,
+                    CONSTRAINT title_length CHECK (length(title) >= 2 AND length(title) <= 100),
+                    CONSTRAINT description_length CHECK (length(description) >= 10 AND length(description) <= 1000),
+                    CONSTRAINT price_format CHECK (price GLOB '[0-9]*.[0-9][0-9]' OR price GLOB '[0-9]*')
+                )
+            """)
+            # 신고 테이블 생성
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS report (
+                    id TEXT PRIMARY KEY,
+                    reporter_id TEXT NOT NULL,
+                    target_id TEXT NOT NULL,
+                    reason TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (reporter_id) REFERENCES user(id) ON DELETE CASCADE,
+                    FOREIGN KEY (target_id) REFERENCES user(id) ON DELETE CASCADE,
+                    CONSTRAINT reason_length CHECK (length(reason) >= 10 AND length(reason) <= 500)
+                )
+            """)
+            # 로그인 시도 테이블 생성
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS login_attempt (
+                    id TEXT PRIMARY KEY,
+                    username TEXT NOT NULL,
+                    attempt_time TIMESTAMP NOT NULL,
+                    ip_address TEXT NOT NULL,
+                    success BOOLEAN NOT NULL,
+                    CONSTRAINT ip_address_format CHECK (ip_address GLOB '*.*.*.*')
+                )
+            """)
+            # 채팅 메시지 테이블 생성
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS chat_message (
+                    id TEXT PRIMARY KEY,
+                    username TEXT NOT NULL,
+                    message TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    CONSTRAINT message_length CHECK (length(message) >= 1 AND length(message) <= 500)
+                )
+            """)
+            # 송금 내역 테이블 생성
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS transfer (
+                    id TEXT PRIMARY KEY,
+                    sender_id TEXT NOT NULL,
+                    receiver_id TEXT NOT NULL,
+                    amount DECIMAL(10,2) NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (sender_id) REFERENCES user(id) ON DELETE CASCADE,
+                    FOREIGN KEY (receiver_id) REFERENCES user(id) ON DELETE CASCADE,
+                    CONSTRAINT amount_positive CHECK (amount > 0)
+                )
+            """)
+            db.commit()
+            logger.info("데이터베이스 초기화 완료")
+        except Exception as e:
+            db.rollback()
+            logger.error(f"데이터베이스 초기화 오류: {str(e)}", exc_info=True)
+            raise
 
 def check_login_attempts(username, ip_address):
     db = get_db()
@@ -438,7 +465,9 @@ def login_required(f):
                 session.clear()
                 flash('세션이 만료되었습니다. 다시 로그인해주세요.')
                 return redirect(url_for('login'))
+        # 세션 활동 시간 업데이트
         session['last_activity'] = datetime.now().isoformat()
+        session.modified = True  # 세션 변경 알림
         return f(*args, **kwargs)
     return decorated_function
 
@@ -448,8 +477,10 @@ def reauth_required(f):
         if 'user_id' not in session:
             return redirect(url_for('login'))
         # 재인증 필요 체크
-        if 'reauth_time' not in session or \
-           datetime.now() - datetime.fromisoformat(session['reauth_time']) > timedelta(seconds=app.config['REAUTH_EXPIRY']):
+        if 'reauth_time' not in session:
+            return redirect(url_for('reauth'))
+        reauth_time = datetime.fromisoformat(session['reauth_time'])
+        if datetime.now() - reauth_time > timedelta(seconds=app.config['REAUTH_EXPIRY']):
             return redirect(url_for('reauth'))
         return f(*args, **kwargs)
     return decorated_function
@@ -521,8 +552,10 @@ def register():
             user_id = str(uuid.uuid4())
             # 비밀번호 해싱
             hashed_password = hash_password(password)
-            cursor.execute("INSERT INTO user (id, username, password) VALUES (?, ?, ?)",
-                           (user_id, username, hashed_password))
+            cursor.execute("""
+                INSERT INTO user (id, username, password, balance)
+                VALUES (?, ?, ?, 0.00)
+            """, (user_id, username, hashed_password))
             db.commit()
             flash('회원가입이 완료되었습니다. 로그인 해주세요.')
             return redirect(url_for('login'))
@@ -557,8 +590,11 @@ def login():
         user = cursor.fetchone()
         
         if user and check_password(password, user['password']):
+            session.clear()  # 기존 세션 데이터 초기화
             session['user_id'] = user['id']
+            session['username'] = user['username']
             session['last_activity'] = datetime.now().isoformat()
+            session['reauth_time'] = datetime.now().isoformat()  # 재인증 시간도 초기화
             record_login_attempt(username, ip_address, True)
             flash('로그인 성공!')
             return redirect(url_for('dashboard'))
@@ -571,7 +607,7 @@ def login():
 # 로그아웃
 @app.route('/logout')
 def logout():
-    session.pop('user_id', None)
+    session.clear()  # 세션 데이터 완전 삭제
     flash('로그아웃되었습니다.')
     return redirect(url_for('index'))
 
@@ -588,6 +624,11 @@ def dashboard():
         # 현재 사용자 조회
         cursor.execute("SELECT * FROM user WHERE id = ?", (session['user_id'],))
         current_user = cursor.fetchone()
+        
+        if not current_user:
+            session.clear()
+            flash('사용자 정보를 찾을 수 없습니다. 다시 로그인해주세요.')
+            return redirect(url_for('login'))
         
         # 상품 검색
         if search_query:
@@ -606,13 +647,13 @@ def dashboard():
                              search_query=search_query)
     except Exception as e:
         logger.error(f"Dashboard Error: {str(e)}", exc_info=True)
-        flash('상품 목록을 불러오는 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.')
-        return redirect(url_for('index'))
+        session.clear()
+        flash('상품 목록을 불러오는 중 오류가 발생했습니다. 다시 로그인해주세요.')
+        return redirect(url_for('login'))
 
 # 프로필 페이지: bio 업데이트 가능
 @app.route('/profile', methods=['GET', 'POST'])
 @login_required
-@reauth_required
 @handle_db_error
 def profile():
     try:
@@ -722,8 +763,9 @@ def report():
 
 # 재인증
 @app.route('/reauth', methods=['GET', 'POST'])
-@login_required
 def reauth():
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
     if request.method == 'POST':
         password = request.form['password']
         db = get_db()
@@ -868,6 +910,89 @@ def validate_product_data(title, description, price):
             errors.append("가격은 숫자만 입력 가능합니다.")
     
     return errors
+
+@app.route('/transfer', methods=['GET', 'POST'])
+@login_required
+@handle_db_error
+def transfer():
+    try:
+        if request.method == 'POST':
+            receiver_username = sanitize_input(request.form['receiver_username'])
+            amount = request.form['amount']
+            
+            # 금액 검증
+            try:
+                amount = float(amount)
+                if amount <= 0:
+                    flash('송금 금액은 0보다 커야 합니다.')
+                    return redirect(url_for('transfer'))
+            except ValueError:
+                flash('올바른 금액을 입력해주세요.')
+                return redirect(url_for('transfer'))
+            
+            db = get_db()
+            cursor = db.cursor()
+            
+            # 송신자 정보 조회
+            cursor.execute("SELECT id, balance FROM user WHERE id = ?", (session['user_id'],))
+            sender = cursor.fetchone()
+            
+            # 수신자 정보 조회
+            cursor.execute("SELECT id FROM user WHERE username = ?", (receiver_username,))
+            receiver = cursor.fetchone()
+            
+            if not receiver:
+                flash('존재하지 않는 사용자입니다.')
+                return redirect(url_for('transfer'))
+            
+            if sender['balance'] < amount:
+                flash('잔액이 부족합니다.')
+                return redirect(url_for('transfer'))
+            
+            # 송금 처리
+            try:
+                # 송금 내역 저장
+                transfer_id = str(uuid.uuid4())
+                cursor.execute("""
+                    INSERT INTO transfer (id, sender_id, receiver_id, amount)
+                    VALUES (?, ?, ?, ?)
+                """, (transfer_id, sender['id'], receiver['id'], amount))
+                
+                # 송신자 잔액 차감
+                cursor.execute("""
+                    UPDATE user 
+                    SET balance = balance - ?
+                    WHERE id = ?
+                """, (amount, sender['id']))
+                
+                # 수신자 잔액 증가
+                cursor.execute("""
+                    UPDATE user 
+                    SET balance = balance + ?
+                    WHERE id = ?
+                """, (amount, receiver['id']))
+                
+                db.commit()
+                flash('송금이 완료되었습니다.')
+                return redirect(url_for('dashboard'))
+                
+            except sqlite3.IntegrityError as e:
+                db.rollback()
+                logger.error(f"Transfer Error: {str(e)}")
+                flash('송금 처리 중 오류가 발생했습니다.')
+                return redirect(url_for('transfer'))
+        
+        # GET 요청 처리
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute("SELECT balance FROM user WHERE id = ?", (session['user_id'],))
+        user = cursor.fetchone()
+        return render_template('transfer.html', balance=user['balance'])
+        
+    except Exception as e:
+        logger.error(f"Transfer Error: {str(e)}", exc_info=True)
+        flash('송금 처리 중 오류가 발생했습니다.')
+        return redirect(url_for('dashboard'))
 
 if __name__ == '__main__':
     init_db()  # 앱 컨텍스트 내에서 테이블 생성

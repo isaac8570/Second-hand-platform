@@ -3,6 +3,13 @@ content %}
 <h1>대시보드</h1>
 <p>환영합니다, {{ user.username }}님!</p>
 
+<div class="user-info">
+  <p>
+    현재 잔액: <span class="balance">{{ "%.2f"|format(user.balance) }}원</span>
+  </p>
+  <a href="{{ url_for('transfer') }}" class="button transfer">송금하기</a>
+</div>
+
 <div class="search-container">
   <form method="GET" action="{{ url_for('dashboard') }}" class="search-form">
     <input
@@ -241,6 +248,36 @@ content %}
     border: 1px solid #ddd;
     border-radius: 4px;
     background-color: white;
+  }
+
+  .user-info {
+    margin: 20px 0;
+    padding: 15px;
+    background-color: #f8f9fa;
+    border-radius: 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .balance {
+    font-size: 1.2em;
+    font-weight: bold;
+    color: #28a745;
+  }
+
+  .button.transfer {
+    background-color: #28a745;
+    color: white;
+    text-decoration: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    border: none;
+    cursor: pointer;
+  }
+
+  .button.transfer:hover {
+    background-color: #218838;
   }
 </style>
 {% endblock %}
