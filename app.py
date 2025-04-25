@@ -364,10 +364,12 @@ def init_db():
                     bio TEXT,
                     balance DECIMAL(10,2) DEFAULT 0.00,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    is_admin BOOLEAN DEFAULT 0,
                     CONSTRAINT username_length CHECK (length(username) >= 3 AND length(username) <= 20),
                     CONSTRAINT balance_non_negative CHECK (balance >= 0)
                 )
             """)
+            
             # 상품 테이블 생성
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS product (
@@ -383,6 +385,7 @@ def init_db():
                     CONSTRAINT price_format CHECK (price GLOB '[0-9]*.[0-9][0-9]' OR price GLOB '[0-9]*')
                 )
             """)
+            
             # 신고 테이블 생성
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS report (
@@ -402,6 +405,7 @@ def init_db():
                     CONSTRAINT status_check CHECK (status IN ('pending', 'approved', 'rejected'))
                 )
             """)
+            
             # 로그인 시도 테이블 생성
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS login_attempt (
@@ -413,6 +417,7 @@ def init_db():
                     CONSTRAINT ip_address_format CHECK (ip_address GLOB '*.*.*.*')
                 )
             """)
+            
             # 채팅 메시지 테이블 생성
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS chat_message (
@@ -423,6 +428,7 @@ def init_db():
                     CONSTRAINT message_length CHECK (length(message) >= 1 AND length(message) <= 500)
                 )
             """)
+            
             # 송금 내역 테이블 생성
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS transfer (
@@ -436,6 +442,7 @@ def init_db():
                     CONSTRAINT amount_positive CHECK (amount > 0)
                 )
             """)
+            
             # 감사 로그 테이블 생성
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS audit_log (
@@ -447,10 +454,7 @@ def init_db():
                     FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE
                 )
             """)
-            # 사용자 테이블에 관리자 필드 추가
-            cursor.execute("""
-                ALTER TABLE user ADD COLUMN is_admin BOOLEAN DEFAULT 0
-            """)
+            
             db.commit()
             logger.info("데이터베이스 초기화 완료")
         except Exception as e:
